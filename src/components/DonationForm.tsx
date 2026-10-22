@@ -1,12 +1,13 @@
 /**
  * DonationForm — the core donate UX.
  * Two-step: approve USDC exact amount, then call donate().
- * Shows: amount input, donor name, message, approve CTA, donate CTA.
+ * Shows: amount input, supporter name, message, approve CTA, donate CTA.
  */
-import { useState, useCallback } from 'react';
-import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt, useSwitchChain } from 'wagmi';
+import { useState, useCallback, useEffect, useRef } from 'react';
+import { useAccount, usePublicClient, useReadContract, useWriteContract, useWaitForTransactionReceipt, useSwitchChain } from 'wagmi';
 import { erc20Abi } from 'viem';
 import { arcTestnet } from 'viem/chains';
+import { ConnectKitButton } from 'connectkit';
 import { Loader2, ExternalLink, CheckCircle2, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { KASIH_ADDRESS, KASIH_ABI } from '../contract';
@@ -15,7 +16,9 @@ import { formatUsdc, parseUsdcInput, decodeRevert } from '../lib/utils';
 
 const ARC_CHAIN_ID = arcTestnet.id; // 5042002
 const usdcFact = getUsdc(ARC_CHAIN_ID);
-const USDC_ADDRESS = usdcFact?.address as `0x${string}`;
+// Local Arc nodes use the same USDC predeploy; the override exists for forks
+// that ship a different token address.
+const USDC_ADDRESS = (import.meta.env.VITE_USDC_ADDRESS || usdcFact?.address) as `0x${string}`;
 
 interface DonationFormProps {
   username: string;
@@ -27,9 +30,12 @@ interface DonationFormProps {
 
 type Step = 'idle' | 'approving' | 'approve-pending' | 'approved' | 'donating' | 'donate-pending' | 'done' | 'error';
 
+const FLOW_TOAST_ID = 'donation-flow';
+
 export default function DonationForm({ username, minDonation, maxDonation, onSuccess }: DonationFormProps) {
-  const { address, isConnected, chainId } = useAccount();
+  const { address, isConnected, chainId, connector } = useAccount();
   const { switchChain, isPending: isSwitching } = useSwitchChain();
+  const publicClient = usePublicClient({ chainId: ARC_CHAIN_ID });
 
   const [amountInput, setAmountInput] = useState('');
   const [donorName, setDonorName] = useState('');
@@ -38,14 +44,13 @@ export default function DonationForm({ username, minDonation, maxDonation, onSuc
   const [approveTxHash, setApproveTxHash] = useState<`0x${string}` | undefined>();
   const [donateTxHash, setDonateTxHash] = useState<`0x${string}` | undefined>();
   const [errorMsg, setErrorMsg] = useState('');
+  const autoDonateRef = useRef(false);
 
   const isWrongChain = isConnected && chainId !== ARC_CHAIN_ID;
   const parsedAmount = parseUsdcInput(amountInput);
   const amountTooLow = parsedAmount !== null && parsedAmount < minDonation;
   const amountTooHigh = parsedAmount !== null && parsedAmount > maxDonation;
   const amountValid = parsedAmount !== null && !amountTooLow && !amountTooHigh;
-  const donorNameTooLong = donorName.length > 40;
-  const messageTooLong = message.length > 200;
 
   // Approve write
   const { writeContract: writeApprove, isPending: isApproveWalletPending } = useWriteContract();
@@ -54,6 +59,16 @@ export default function DonationForm({ username, minDonation, maxDonation, onSuc
   // Donate write
   const { writeContract: writeDonate, isPending: isDonateWalletPending } = useWriteContract();
   const { isLoading: isDonateConfirming, isSuccess: isDonateSuccess } = useWaitForTransactionReceipt({ hash: donateTxHash });
+
+  // Donor balance, so an empty wallet fails before opening the wallet UI.
+  const { data: usdcBalance } = useReadContract({
+    address: USDC_ADDRESS,
+    abi: erc20Abi,
+    functionName: 'balanceOf',
+    args: address ? [address] : undefined,
+    chainId: ARC_CHAIN_ID,
+    query: { enabled: !!address },
+  });
 
   // Check current allowance
   const { data: allowance, refetch: refetchAllowance } = useReadContract({
@@ -65,12 +80,47 @@ export default function DonationForm({ username, minDonation, maxDonation, onSuc
     query: { enabled: !!address },
   });
 
-  const needsApproval = parsedAmount !== null && (allowance === undefined || (allowance) < parsedAmount);
+  const needsApproval = parsedAmount !== null && (allowance === undefined || allowance < parsedAmount);
+  const insufficientBalance = parsedAmount !== null && usdcBalance !== undefined && usdcBalance < parsedAmount;
 
-  const handleApprove = useCallback(() => {
+  // A wallet network entry can share chain ID 5042002 with Arc Testnet while
+  // pointing at a different RPC. Compare genesis blocks before asking it to sign:
+  // otherwise the tx is broadcast somewhere this app never sees.
+  const walletRpcMatchesApp = useCallback(async (): Promise<boolean> => {
+    const provider = (window as unknown as {
+      ethereum?: { request(args: { method: string; params?: unknown[] }): Promise<unknown> };
+    }).ethereum;
+    if (!provider || !publicClient) return true;
+    try {
+      const [appGenesis, walletGenesis] = await Promise.all([
+        publicClient.getBlock({ blockNumber: 0n }),
+        provider
+          .request({ method: 'eth_getBlockByNumber', params: ['0x0', false] })
+          .then((block) => (block as { hash?: string } | null)?.hash ?? null),
+      ]);
+      return !walletGenesis || walletGenesis === appGenesis.hash;
+    } catch {
+      return true;
+    }
+  }, [publicClient]);
+
+  const handleApprove = useCallback(async () => {
     if (!parsedAmount || !address) return;
     setStep('approving');
     setErrorMsg('');
+    autoDonateRef.current = true;
+    console.info('[donation] approve requested via', connector?.name ?? 'injected');
+    toast.loading(`Approve USDC in ${connector?.name ?? 'your wallet'}…`, { id: FLOW_TOAST_ID });
+
+    if (!(await walletRpcMatchesApp())) {
+      autoDonateRef.current = false;
+      setStep('error');
+      const message = `Wallet RPC is not ${import.meta.env.VITE_ARC_RPC_URL ?? 'the app RPC'}. Point the Arc network in ${connector?.name ?? 'your wallet'} at that RPC and retry.`;
+      setErrorMsg(message);
+      toast.error(message, { id: FLOW_TOAST_ID });
+      return;
+    }
+
     try {
       writeApprove(
         {
@@ -78,6 +128,7 @@ export default function DonationForm({ username, minDonation, maxDonation, onSuc
           abi: erc20Abi,
           functionName: 'approve',
           args: [KASIH_ADDRESS, parsedAmount],
+          account: address,
           chainId: ARC_CHAIN_ID,
         },
         {
@@ -86,21 +137,37 @@ export default function DonationForm({ username, minDonation, maxDonation, onSuc
             setStep('approve-pending');
           },
           onError: (err) => {
+            autoDonateRef.current = false;
+            const decoded = decodeRevert(err);
             setStep('error');
-            setErrorMsg(decodeRevert(err));
+            setErrorMsg(decoded);
+            toast.error(`Approval failed: ${decoded}`, { id: FLOW_TOAST_ID });
           },
         }
       );
     } catch (err) {
+      autoDonateRef.current = false;
+      const decoded = decodeRevert(err);
       setStep('error');
-      setErrorMsg(decodeRevert(err));
+      setErrorMsg(decoded);
+      toast.error(`Approval failed: ${decoded}`, { id: FLOW_TOAST_ID });
     }
-  }, [parsedAmount, address, writeApprove]);
+  }, [parsedAmount, address, writeApprove, connector?.name, walletRpcMatchesApp]);
 
-  const handleDonate = useCallback(() => {
-    if (!parsedAmount) return;
+  const handleDonate = useCallback(async () => {
+    if (!parsedAmount || !address) return;
     setStep('donating');
     setErrorMsg('');
+    toast.loading('Confirm the donation in your wallet…', { id: FLOW_TOAST_ID });
+
+    if (!(await walletRpcMatchesApp())) {
+      setStep('error');
+      const message = `Wallet RPC is not ${import.meta.env.VITE_ARC_RPC_URL ?? 'the app RPC'}. Point the Arc network in ${connector?.name ?? 'your wallet'} at that RPC and retry.`;
+      setErrorMsg(message);
+      toast.error(message, { id: FLOW_TOAST_ID });
+      return;
+    }
+
     try {
       writeDonate(
         {
@@ -108,17 +175,20 @@ export default function DonationForm({ username, minDonation, maxDonation, onSuc
           abi: KASIH_ABI,
           functionName: 'donate',
           args: [username, donorName.trim(), message.trim(), parsedAmount],
+          account: address ?? undefined,
           chainId: ARC_CHAIN_ID,
         },
         {
           onSuccess: (hash) => {
             setDonateTxHash(hash);
             setStep('donate-pending');
+            toast.loading('Donation submitted. Waiting for confirmation…', { id: FLOW_TOAST_ID });
           },
           onError: (err) => {
-            setStep('error');
             const decoded = decodeRevert(err);
+            setStep('error');
             setErrorMsg(decoded);
+            toast.error(`Donation failed: ${decoded}`, { id: FLOW_TOAST_ID });
             if (decoded.includes('donation limit')) {
               void refetchAllowance();
             }
@@ -126,130 +196,186 @@ export default function DonationForm({ username, minDonation, maxDonation, onSuc
         }
       );
     } catch (err) {
+      const decoded = decodeRevert(err);
       setStep('error');
-      setErrorMsg(decodeRevert(err));
+      setErrorMsg(decoded);
+      toast.error(`Donation failed: ${decoded}`, { id: FLOW_TOAST_ID });
     }
-  }, [parsedAmount, username, donorName, message, writeDonate, refetchAllowance]);
+  }, [parsedAmount, username, donorName, message, writeDonate, refetchAllowance, address, walletRpcMatchesApp, connector?.name]);
 
-  // Handle approval confirmed → ready to donate
-  if (isApproveSuccess && step === 'approve-pending') {
-    setStep('approved');
+  // MetaMask sometimes queues a request without opening its popup. Do not leave
+  // the button spinning forever: surface an actionable error after a timeout.
+  useEffect(() => {
+    if (step !== 'approving' && step !== 'donating') return;
+    const timer = setTimeout(() => {
+      setStep('error');
+      const wallet = connector?.name ?? 'your wallet';
+      setErrorMsg(`Wallet did not respond. Open ${wallet} and check pending signature requests.`);
+      toast.error(`Wallet did not respond — open ${wallet} and check pending requests.`, { id: FLOW_TOAST_ID });
+    }, 20_000);
+    return () => clearTimeout(timer);
+  }, [step, connector?.name]);
+
+  // Approval confirmed: continue into the donation automatically so the user
+  // clicks the CTA once (the wallet still asks for two confirmations).
+  useEffect(() => {
+    if (!isApproveSuccess || step !== 'approve-pending') return;
     void refetchAllowance();
-    toast.success('Approval confirmed — ready to donate!');
-  }
+    if (!autoDonateRef.current) {
+      setStep('approved');
+      return;
+    }
+    autoDonateRef.current = false;
+    toast.loading('Approval confirmed. Confirm the donation in your wallet…', { id: FLOW_TOAST_ID });
+    // Deliberately not cleared on re-render: the step guard above prevents
+    // scheduling twice, and a cleanup would cancel the donation.
+    setTimeout(() => void handleDonate(), 800);
+  }, [isApproveSuccess, step, refetchAllowance, handleDonate]);
 
-  // Handle donate confirmed → done
-  if (isDonateSuccess && step === 'donate-pending') {
+  // Donation confirmed.
+  useEffect(() => {
+    if (!isDonateSuccess || step !== 'donate-pending') return;
     setStep('done');
-    toast.success('Donation sent!');
+    toast.success('Donation sent.', { id: FLOW_TOAST_ID });
     onSuccess?.();
-  }
+  }, [isDonateSuccess, step, onSuccess]);
 
   const isLoading =
     isApproveWalletPending || isApproveConfirming || isDonateWalletPending || isDonateConfirming ||
     step === 'approving' || step === 'approve-pending' || step === 'donating' || step === 'donate-pending';
 
-  const glass = {
-    card: {
-      background: 'var(--surface-strong)',
-      backdropFilter: 'blur(30px) saturate(180%)',
-      WebkitBackdropFilter: 'blur(30px) saturate(180%)',
-      border: '1px solid var(--border)',
-    } as React.CSSProperties,
-    inner: {
-      background: 'var(--surface-muted)',
-      border: '1px solid var(--border)',
-    } as React.CSSProperties,
-  };
-
   if (step === 'done') {
     return (
-      <div className="rounded-2xl p-6 text-center space-y-3" style={glass.card}>
+      <div className="card space-y-3 p-6 text-center">
         <CheckCircle2 className="mx-auto size-10" style={{ color: 'var(--success)' }} aria-hidden="true" />
-        <p className="display font-600 text-lg" style={{ color: 'var(--ink)' }}>Donation sent!</p>
-        <p className="text-sm" style={{ color: 'var(--muted)' }}>
-          Your USDC went straight to the creator. Thank you.
+        <h2 className="display text-xl font-bold" style={{ color: 'var(--ink)' }}>
+          Donation sent
+        </h2>
+        <p className="mx-auto max-w-xs text-sm" style={{ color: 'var(--muted)' }}>
+          Your USDC went straight to @{username}. Thank you.
         </p>
         {donateTxHash && (
           <a
             href={buildTxExplorerUrl(ARC_CHAIN_ID, donateTxHash)}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex items-center gap-1.5 text-sm font-medium"
-            style={{ color: 'var(--accent-hover)' }}
+            className="link inline-flex items-center gap-1.5 text-sm"
           >
-            View on ArcScan <ExternalLink className="size-3" aria-hidden="true" />
+            View on ArcScan
+            <ExternalLink className="size-3" aria-hidden="true" />
           </a>
         )}
-        <button
-          onClick={() => { setStep('idle'); setAmountInput(''); setDonorName(''); setMessage(''); setApproveTxHash(undefined); setDonateTxHash(undefined); }}
-          className="mt-2 text-sm font-medium underline underline-offset-2"
-          style={{ color: 'var(--muted)' }}
-        >
-          Donate again
-        </button>
+        <div className="pt-2">
+          <button
+            type="button"
+            onClick={() => {
+              setStep('idle');
+              setAmountInput('');
+              setDonorName('');
+              setMessage('');
+              setApproveTxHash(undefined);
+              setDonateTxHash(undefined);
+            }}
+            className="btn btn-secondary btn-sm"
+          >
+            Send another donation
+          </button>
+        </div>
       </div>
     );
   }
 
+  const submit = () => {
+    if (!amountValid) return;
+    if (needsApproval) handleApprove();
+    else handleDonate();
+  };
+
   return (
-    <div className="rounded-2xl p-5 space-y-4" style={glass.card}>
-      <h2 className="display text-base font-600" style={{ color: 'var(--ink)' }}>Send a donation</h2>
+    <form
+      className="card space-y-4 p-5 sm:p-6"
+      onSubmit={(e) => {
+        e.preventDefault();
+        submit();
+      }}
+      aria-labelledby="donate-heading"
+    >
+      <div>
+        <h2 id="donate-heading" className="display text-lg font-bold" style={{ color: 'var(--ink)' }}>
+          Send USDC
+        </h2>
+        <p className="mt-1 text-sm" style={{ color: 'var(--muted)' }}>
+          Goes directly to @{username}. No platform fee.
+        </p>
+      </div>
 
       {/* Amount */}
-      <div className="space-y-1">
-        <label className="text-xs font-500" style={{ color: 'var(--muted)' }}>Amount (USDC)</label>
-        <div className="rounded-2xl px-4 py-3 flex items-baseline gap-2" style={glass.inner}>
+      <div className="field">
+        <label className="label" htmlFor="donation-amount">
+          Amount (USDC)
+        </label>
+        <div
+          className="flex items-baseline gap-2 rounded-xl border px-4 py-3"
+          style={{ borderColor: 'var(--field-border)', background: 'var(--surface-muted)' }}
+        >
           <input
+            id="donation-amount"
             type="text"
             inputMode="decimal"
+            autoComplete="off"
             value={amountInput}
             onChange={(e) => {
               const v = e.target.value.replace(/[^0-9.]/g, '');
               if (v === '' || /^\d*\.?\d*$/.test(v)) setAmountInput(v);
             }}
             placeholder="0.00"
-            aria-label="Donation amount in USDC"
-            className="display flex-1 bg-transparent text-3xl font-700 tabular-nums outline-none placeholder:opacity-25"
+            className="display min-w-0 flex-1 bg-transparent text-4xl font-bold tabular-nums outline-none"
             style={{ color: 'var(--ink)' }}
+            aria-describedby="amount-range"
+            aria-invalid={amountTooLow || amountTooHigh}
           />
-          <span className="text-sm font-500" style={{ color: 'var(--subtle)' }}>USDC</span>
+          <span className="text-sm font-medium" style={{ color: 'var(--subtle)' }}>
+            USDC
+          </span>
         </div>
+        <p id="amount-range" className="hint">
+          Between {formatUsdc(minDonation)} and {formatUsdc(maxDonation)} USDC.
+        </p>
+        {amountTooLow && (
+          <p className="text-xs" style={{ color: 'var(--danger)' }} role="alert">
+            Minimum is {formatUsdc(minDonation)} USDC.
+          </p>
+        )}
+        {amountTooHigh && (
+          <p className="text-xs" style={{ color: 'var(--danger)' }} role="alert">
+            Maximum is {formatUsdc(maxDonation)} USDC.
+          </p>
+        )}
         {/* Quick chips */}
-        <div className="flex gap-2 flex-wrap pt-1">
+        <div className="flex flex-wrap gap-2 pt-1">
           {[1, 5, 10, 25].map((v) => {
             const chips = BigInt(v) * 1_000_000n;
             const disabled = chips < minDonation || chips > maxDonation;
             return (
               <button
                 key={v}
+                type="button"
                 disabled={disabled}
                 onClick={() => setAmountInput(String(v))}
-                className="rounded-full px-3 py-1 text-xs font-500 border transition-colors disabled:opacity-30"
-                style={{ borderColor: 'var(--border)', color: 'var(--muted)', background: 'var(--surface-muted)' }}
+                className="chip"
                 aria-label={`Set amount to ${v} USDC`}
               >
-                ${v}
+                {v} USDC
               </button>
             );
           })}
         </div>
-        {amountTooLow && (
-          <p className="text-xs" style={{ color: 'var(--danger)' }} role="alert">
-            Minimum is {formatUsdc(minDonation)} USDC
-          </p>
-        )}
-        {amountTooHigh && (
-          <p className="text-xs" style={{ color: 'var(--danger)' }} role="alert">
-            Maximum is {formatUsdc(maxDonation)} USDC
-          </p>
-        )}
       </div>
 
-      {/* Donor name */}
-      <div className="space-y-1">
-        <label className="text-xs font-500" htmlFor="donor-name" style={{ color: 'var(--muted)' }}>
-          Your name <span style={{ color: 'var(--subtle)' }}>(optional, max 40 chars)</span>
+      {/* Supporter name */}
+      <div className="field">
+        <label className="label" htmlFor="donor-name">
+          Your name <span className="font-normal" style={{ color: 'var(--subtle)' }}>(optional)</span>
         </label>
         <input
           id="donor-name"
@@ -258,117 +384,131 @@ export default function DonationForm({ username, minDonation, maxDonation, onSuc
           maxLength={40}
           onChange={(e) => setDonorName(e.target.value)}
           placeholder="Anonymous"
-          className="w-full rounded-xl border px-3 py-2 text-sm outline-none transition-colors"
-          style={{ borderColor: donorNameTooLong ? 'var(--danger)' : 'var(--border)', background: 'var(--surface-muted)', color: 'var(--ink)' }}
-          aria-label="Your name (optional)"
-          aria-invalid={donorNameTooLong}
+          className="input"
+          autoComplete="name"
+          aria-describedby="donor-name-hint"
         />
-        {donorNameTooLong && <p className="text-xs" style={{ color: 'var(--danger)' }} role="alert">Max 40 characters</p>}
+        <p id="donor-name-hint" className="hint">
+          Shown publicly with your donation. Leave empty to appear as Anonymous. Max 40 characters.
+        </p>
       </div>
 
       {/* Message */}
-      <div className="space-y-1">
-        <label className="text-xs font-500" htmlFor="message" style={{ color: 'var(--muted)' }}>
-          Message <span style={{ color: 'var(--subtle)' }}>(optional, max 200 chars)</span>
+      <div className="field">
+        <label className="label" htmlFor="donation-message">
+          Message <span className="font-normal" style={{ color: 'var(--subtle)' }}>(optional)</span>
         </label>
         <textarea
-          id="message"
+          id="donation-message"
           value={message}
           maxLength={200}
           onChange={(e) => setMessage(e.target.value)}
           placeholder="Keep up the great work!"
           rows={3}
-          className="w-full rounded-xl border px-3 py-2 text-sm outline-none resize-none transition-colors"
-          style={{ borderColor: messageTooLong ? 'var(--danger)' : 'var(--border)', background: 'var(--surface-muted)', color: 'var(--ink)' }}
-          aria-label="Message (optional)"
-          aria-invalid={messageTooLong}
+          className="textarea"
+          aria-describedby="message-count"
         />
-        <div className="flex justify-between">
-          {messageTooLong && <p className="text-xs" style={{ color: 'var(--danger)' }} role="alert">Max 200 characters</p>}
-          <span className="ml-auto text-xs tabular-nums" style={{ color: 'var(--subtle)' }}>{message.length}/200</span>
-        </div>
+        <p id="message-count" className="text-right text-xs tabular-nums" style={{ color: 'var(--subtle)' }}>
+          {message.length}/200
+        </p>
       </div>
 
       {/* Preview */}
       {amountValid && (
-        <div className="rounded-xl p-3 space-y-1 text-xs" style={{ background: 'var(--surface-muted)', border: '1px solid var(--border)' }}>
-          <div className="flex justify-between">
+        <div className="card-muted space-y-1.5 p-4 text-sm" aria-live="polite">
+          <div className="flex justify-between gap-3">
             <span style={{ color: 'var(--muted)' }}>You send</span>
-            <span className="tabular-nums font-600" style={{ color: 'var(--ink)' }}>{formatUsdc(parsedAmount)} USDC</span>
+            <span className="font-bold tabular-nums" style={{ color: 'var(--ink)' }}>
+              {formatUsdc(parsedAmount)} USDC
+            </span>
           </div>
-          <div className="flex justify-between">
+          <div className="flex justify-between gap-3">
             <span style={{ color: 'var(--muted)' }}>Creator receives</span>
-            <span className="tabular-nums font-600" style={{ color: 'var(--success)' }}>{formatUsdc(parsedAmount)} USDC</span>
+            <span className="font-bold tabular-nums" style={{ color: 'var(--success)' }}>
+              {formatUsdc(parsedAmount)} USDC
+            </span>
           </div>
-          <div className="flex justify-between">
+          <div className="flex justify-between gap-3">
             <span style={{ color: 'var(--muted)' }}>Platform fee</span>
-            <span className="font-600" style={{ color: 'var(--success)' }}>None</span>
+            <span className="font-bold" style={{ color: 'var(--success)' }}>
+              0 USDC
+            </span>
           </div>
         </div>
       )}
 
       {/* Error */}
       {step === 'error' && errorMsg && (
-        <div className="flex items-start gap-2 rounded-xl p-3" style={{ background: 'rgba(186,43,76,0.08)', border: '1px solid rgba(186,43,76,0.2)' }} role="alert">
-          <AlertCircle className="mt-0.5 size-4 shrink-0" style={{ color: 'var(--danger)' }} aria-hidden="true" />
-          <p className="text-sm" style={{ color: 'var(--danger)' }}>{errorMsg}</p>
+        <div className="alert alert-danger" role="alert">
+          <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+          <p>{errorMsg}</p>
         </div>
       )}
 
-      {/* CTAs */}
+      {/* CTA */}
       {!isConnected ? (
-        <p className="text-center text-sm" style={{ color: 'var(--muted)' }}>Connect your wallet to donate</p>
+        <div className="space-y-2 text-center">
+          <p className="text-sm" style={{ color: 'var(--muted)' }}>
+            Connect a wallet to send USDC.
+          </p>
+          <ConnectKitButton label="Connect wallet" />
+        </div>
       ) : isWrongChain ? (
         <button
+          type="button"
           onClick={() => switchChain({ chainId: ARC_CHAIN_ID })}
           disabled={isSwitching}
-          className="w-full rounded-2xl py-3.5 text-sm font-600 text-white transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-40"
-          style={{ background: 'var(--accent)' }}
+          className="btn btn-primary w-full"
           aria-live="polite"
         >
           {isSwitching ? (
-            <span className="flex items-center justify-center gap-2"><Loader2 className="size-4 animate-spin" aria-hidden="true" /> Switching...</span>
-          ) : 'Switch to Arc'}
-        </button>
-      ) : needsApproval ? (
-        <button
-          onClick={() => { void handleApprove(); }}
-          disabled={!amountValid || donorNameTooLong || messageTooLong || isLoading}
-          className="w-full rounded-2xl py-3.5 text-sm font-600 text-white transition-all hover:scale-[1.01] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-40"
-          style={{ background: 'var(--accent)' }}
-          aria-live="polite"
-        >
-          {(isApproveWalletPending) ? (
-            <span className="flex items-center justify-center gap-2"><Loader2 className="size-4 animate-spin" aria-hidden="true" /> Confirm in wallet…</span>
-          ) : (isApproveConfirming || step === 'approve-pending') ? (
-            <span className="flex items-center justify-center gap-2"><Loader2 className="size-4 animate-spin" aria-hidden="true" /> Confirming approval…</span>
-          ) : amountValid ? (
-            `Allow ${formatUsdc(parsedAmount)} USDC`
-          ) : 'Enter amount first'}
+            <>
+              <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+              Switching…
+            </>
+          ) : (
+            'Switch to Arc'
+          )}
         </button>
       ) : (
         <button
-          onClick={() => { void handleDonate(); }}
-          disabled={!amountValid || donorNameTooLong || messageTooLong || isLoading}
-          className="w-full rounded-2xl py-3.5 text-sm font-600 text-white transition-all hover:scale-[1.01] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-40"
-          style={{ background: 'var(--accent)' }}
+          type="submit"
+          disabled={!amountValid || insufficientBalance || isLoading}
+          className="btn btn-primary w-full"
           aria-live="polite"
+          aria-busy={isLoading}
         >
-          {(isDonateWalletPending) ? (
-            <span className="flex items-center justify-center gap-2"><Loader2 className="size-4 animate-spin" aria-hidden="true" /> Confirm in wallet…</span>
-          ) : (isDonateConfirming || step === 'donate-pending') ? (
-            <span className="flex items-center justify-center gap-2"><Loader2 className="size-4 animate-spin" aria-hidden="true" /> Confirming…</span>
+          {isApproveWalletPending || isDonateWalletPending ? (
+            <>
+              <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+              Confirm in wallet…
+            </>
+          ) : isApproveConfirming || step === 'approve-pending' ? (
+            <>
+              <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+              Approving USDC…
+            </>
+          ) : isDonateConfirming || step === 'donate-pending' || step === 'donating' ? (
+            <>
+              <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+              Sending donation…
+            </>
+          ) : insufficientBalance ? (
+            'Insufficient USDC balance'
           ) : amountValid ? (
-            `Send ${formatUsdc(parsedAmount)} USDC`
-          ) : 'Enter amount first'}
+            needsApproval ? `Approve and send ${formatUsdc(parsedAmount)} USDC` : `Send ${formatUsdc(parsedAmount)} USDC`
+          ) : (
+            'Enter an amount'
+          )}
         </button>
       )}
 
       {needsApproval && amountValid && (
         <p className="text-center text-xs" style={{ color: 'var(--subtle)' }}>
-          Step 1 of 2: approve exact amount, then send.
+          You approve the exact amount first. The donation sends automatically after that — two
+          wallet confirmations in total.
         </p>
       )}
-    </div>
+    </form>
   );
 }

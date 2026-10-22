@@ -7,84 +7,99 @@ import { buildAddressExplorerUrl } from '../onchain-facts';
 
 interface LayoutProps {
   children: React.ReactNode;
-  /** If true, renders a minimal nav without the app links */
+  /** Hides the page navigation (public creator profiles). */
   minimal?: boolean;
 }
 
 export default function Layout({ children, minimal = false }: LayoutProps) {
   const location = useLocation();
   const isApp = location.pathname.startsWith('/app');
+  const isDeployed = KASIH_ADDRESS !== '0x0000000000000000000000000000000000000000';
 
   return (
-    <div className="min-h-dvh flex flex-col" style={{ background: 'var(--bg-gradient)' }}>
-      {/* Nav */}
+    <div className="flex min-h-dvh flex-col">
+      <a className="skip-link" href="#main">
+        Skip to content
+      </a>
+
       <header
         className="sticky top-0 z-40 border-b"
         style={{
-          background: 'rgba(255,255,255,0.80)',
-          backdropFilter: 'blur(20px) saturate(180%)',
-          WebkitBackdropFilter: 'blur(20px) saturate(180%)',
+          background: 'rgba(249, 251, 244, 0.88)',
+          backdropFilter: 'blur(16px) saturate(160%)',
+          WebkitBackdropFilter: 'blur(16px) saturate(160%)',
           borderColor: 'var(--border)',
         }}
       >
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">
-          <Link to="/" className="flex items-center gap-2 select-none" aria-label="KasihCengkring home">
-            <div
-              className="flex size-8 items-center justify-center rounded-xl"
+        <div className="shell grid grid-cols-[auto_1fr] items-center gap-x-4 gap-y-1 py-3 md:grid-cols-[auto_1fr_auto]">
+          <Link
+            to="/"
+            className="flex items-center gap-2.5 select-none"
+            aria-label="KasihCengkring home"
+          >
+            <span
+              className="flex size-9 items-center justify-center rounded-xl"
               style={{ background: 'var(--accent)' }}
             >
-              <Heart className="size-4 text-white" aria-hidden="true" />
-            </div>
-            <span className="display text-base font-700" style={{ color: 'var(--ink)' }}>
+              <Heart className="size-4 fill-current" style={{ color: 'var(--accent-ink)' }} aria-hidden="true" />
+            </span>
+            <span className="display text-[1.0625rem] font-bold" style={{ color: 'var(--ink)' }}>
               KasihCengkring
             </span>
           </Link>
 
-          <div className="flex items-center gap-3">
-            {!minimal && (
-              <nav className="hidden sm:flex items-center gap-1" aria-label="Main navigation">
-                {isApp ? (
-                  <>
-                    <NavLink to="/app" exact>Dashboard</NavLink>
-                    <NavLink to="/app/history">History</NavLink>
-                    <NavLink to="/app/setting">Settings</NavLink>
-                  </>
-                ) : (
-                  <NavLink to="/app">Creator Dashboard</NavLink>
-                )}
-              </nav>
-            )}
-            <ConnectKitButton />
+          {!minimal && (
+            <nav
+              aria-label="Main"
+              className="order-3 col-span-2 flex items-center gap-0.5 overflow-x-auto pb-1 md:order-none md:col-span-1 md:justify-self-center md:pb-0"
+            >
+              {isApp ? (
+                <>
+                  <NavLink to="/app" exact>
+                    Dashboard
+                  </NavLink>
+                  <NavLink to="/app/history">History</NavLink>
+                  <NavLink to="/app/setting">Settings</NavLink>
+                </>
+              ) : (
+                <NavLink to="/app">Creator dashboard</NavLink>
+              )}
+            </nav>
+          )}
+
+          <div className="col-start-2 row-start-1 flex items-center justify-end gap-2 md:col-start-3">
+            <ConnectKitButton label="Connect" />
           </div>
         </div>
       </header>
 
-      {/* Page content */}
-      <main className="flex-1">{children}</main>
+      <main id="main" className="flex-1">
+        {children}
+      </main>
 
-      {/* Footer — only on non-app pages */}
       {!isApp && (
-        <footer
-          className="border-t py-8 text-center"
-          style={{ borderColor: 'var(--border)' }}
-        >
-          <p className="text-xs" style={{ color: 'var(--muted)' }}>
-            KasihCengkring is unaudited. Use small amounts.{' '}
-            {KASIH_ADDRESS !== '0x0000000000000000000000000000000000000000' && (
-              <>
-                Contract:{' '}
+        <footer className="border-t" style={{ borderColor: 'var(--border)' }}>
+          <div
+            className="shell flex flex-col gap-2 py-8 pb-20 text-xs sm:flex-row sm:items-center sm:justify-between sm:pb-8 sm:pr-44"
+            style={{ color: 'var(--muted)' }}
+          >
+            <p>
+              KasihCengkring is unaudited open-source software. Use small amounts on Arc Testnet.
+            </p>
+            {isDeployed && (
+              <p>
+                Contract{' '}
                 <a
                   href={buildAddressExplorerUrl(arcTestnet.id, KASIH_ADDRESS)}
                   target="_blank"
                   rel="noreferrer"
-                  className="mono underline underline-offset-2"
-                  style={{ color: 'var(--accent-hover)' }}
+                  className="mono link"
                 >
-                  {KASIH_ADDRESS.slice(0, 10)}...
+                  {KASIH_ADDRESS.slice(0, 10)}…{KASIH_ADDRESS.slice(-4)}
                 </a>
-              </>
+              </p>
             )}
-          </p>
+          </div>
         </footer>
       )}
     </div>
@@ -103,14 +118,7 @@ function NavLink({
   const location = useLocation();
   const active = exact ? location.pathname === to : location.pathname.startsWith(to);
   return (
-    <Link
-      to={to}
-      className="rounded-lg px-3 py-1.5 text-sm font-medium transition-colors"
-      style={{
-        color: active ? 'var(--accent)' : 'var(--muted)',
-        background: active ? 'var(--surface-muted)' : 'transparent',
-      }}
-    >
+    <Link to={to} className="nav-link" aria-current={active ? 'page' : undefined}>
       {children}
     </Link>
   );

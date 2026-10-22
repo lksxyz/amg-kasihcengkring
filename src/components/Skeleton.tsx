@@ -8,10 +8,9 @@ interface SkeletonProps {
 export function Skeleton({ className = '', style }: SkeletonProps) {
   return (
     <div
-      role="status"
-      aria-label="Loading"
-      className={`animate-pulse rounded-xl bg-black/6 ${className}`}
-      style={style}
+      aria-hidden="true"
+      className={`animate-pulse rounded-lg ${className}`}
+      style={{ background: 'var(--surface-muted)', ...style }}
     />
   );
 }
@@ -28,14 +27,7 @@ export function SkeletonText({ lines = 1, className = '' }: { lines?: number; cl
 
 export function SkeletonCard({ className = '' }: { className?: string }) {
   return (
-    <div
-      className={`rounded-2xl border p-5 ${className}`}
-      style={{
-        background: 'var(--surface)',
-        borderColor: 'var(--border)',
-        backdropFilter: 'blur(20px)',
-      }}
-    >
+    <div className={`card p-5 ${className}`}>
       <Skeleton className="mb-3 h-4 w-24" />
       <Skeleton className="h-9 w-36" />
       <Skeleton className="mt-3 h-3 w-48" />

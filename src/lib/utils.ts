@@ -70,15 +70,15 @@ export function decodeRevert(err: unknown): string {
   const msg = parts.join(' ');
 
   if (msg.includes('user rejected') || msg.includes('User rejected') || msg.includes('4001')) return 'Transaction cancelled.';
-  if (msg.includes('AmountAboveMax')) return 'Amount exceeds the donation limit. The limit has been refreshed.';
-  if (msg.includes('AmountBelowMin')) return 'Amount is below the minimum for this creator.';
+  if (msg.includes('AmountAboveMax')) return 'Amount is above the current donation limit.';
+  if (msg.includes('AmountBelowMin')) return "Amount is below this creator's minimum.";
   if (msg.includes('UsernameInvalid')) return 'Username is invalid.';
   if (msg.includes('UsernameTaken')) return 'Username is already taken.';
   if (msg.includes('UsernameReserved')) return 'That username is reserved.';
   if (msg.includes('AlreadyRegistered')) return 'This wallet already has a username.';
   if (msg.includes('NotRegistered')) return 'Creator not found.';
   if (msg.includes('ZeroAddress')) return 'Invalid address.';
-  if (msg.includes('Pausable: paused') || msg.includes('EnforcedPause')) return 'The platform is currently paused.';
+  if (msg.includes('Pausable: paused') || msg.includes('EnforcedPause')) return 'The platform is paused right now. Try again later.';
   if (
     msg.includes('insufficient funds') ||
     msg.includes('exceeds balance') ||
@@ -89,8 +89,8 @@ export function decodeRevert(err: unknown): string {
     // MetaMask RPC error with no specific text — the wallet rejected silently
     // because the account balance is 0. This is the last-resort gas check.
     msg === 'Error: [object Object]' || msg.includes('[object Object]')
-  ) return 'Not enough USDC for gas. Use the "Get test USDC" button in the Arc Studio sidebar to fund your wallet, then try again.';
-  if (msg.includes('allowance')) return 'Approval too low — please approve the exact amount first.';
-  if (msg.includes('network') || msg.includes('timeout')) return 'Network error. Please retry.';
+  ) return 'Not enough USDC to pay for gas. Add USDC to your wallet, then try again.';
+  if (msg.includes('allowance')) return 'Approval is too low. Approve the exact amount, then retry.';
+  if (msg.includes('network') || msg.includes('timeout')) return 'Could not reach the network. Check your connection and try again.';
   return 'Transaction failed. Please try again.';
 }
