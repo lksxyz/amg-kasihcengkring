@@ -1,10 +1,13 @@
 {
-  "name": "studio-app",
+  "name": "kasihcengkring",
   "private": true,
   "version": "0.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "deploy": "bun run build && bunx netlify-cli deploy --prod --dir=dist",
     "deploy:self": "bun run ./scripts/self-deploy.ts",
     "compass:deploy": "bun run ./scripts/compass-deploy.ts",
     "fetch:abi": "bun run ./scripts/fetch-abi.ts",

@@ -1,6 +1,9 @@
 import { Link, useLocation } from 'react-router-dom';
 import { ConnectKitButton } from 'connectkit';
 import { Heart } from 'lucide-react';
+import { arcTestnet } from 'viem/chains';
+import { KASIH_ADDRESS } from '../contract';
+import { buildAddressExplorerUrl } from '../onchain-facts';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -67,17 +70,17 @@ export default function Layout({ children, minimal = false }: LayoutProps) {
         >
           <p className="text-xs" style={{ color: 'var(--muted)' }}>
             KasihCengkring is unaudited. Use small amounts.{' '}
-            {import.meta.env.VITE_KASIH_ADDRESS && import.meta.env.VITE_KASIH_ADDRESS !== '0x0000000000000000000000000000000000000000' && (
+            {KASIH_ADDRESS !== '0x0000000000000000000000000000000000000000' && (
               <>
                 Contract:{' '}
                 <a
-                  href={`https://explorer.arc.io/address/${import.meta.env.VITE_KASIH_ADDRESS}`}
+                  href={buildAddressExplorerUrl(arcTestnet.id, KASIH_ADDRESS)}
                   target="_blank"
                   rel="noreferrer"
                   className="mono underline underline-offset-2"
                   style={{ color: 'var(--accent-hover)' }}
                 >
-                  {(import.meta.env.VITE_KASIH_ADDRESS as string).slice(0, 10)}...
+                  {KASIH_ADDRESS.slice(0, 10)}...
                 </a>
               </>
             )}

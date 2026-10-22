@@ -1,11 +1,11 @@
 /**
  * KasihCengkring contract configuration.
- * Address is populated from contract-metadata after deploy.
- * Import the ABI from the Foundry artifact when available; until then use the inline ABI.
+ * The deployed Arc Testnet address is the default; override with VITE_KASIH_ADDRESS
+ * when deploying a new instance. ABI mirrors contracts/KasihCengkring.sol.
  */
 
 export const KASIH_ADDRESS = (
-  import.meta.env.VITE_KASIH_ADDRESS || '0x0000000000000000000000000000000000000000'
+  import.meta.env.VITE_KASIH_ADDRESS || '0xe9ed1145c0ec41220a1dc6b76bee0b860d078678'
 ) as `0x${string}`;
 
 export const KASIH_ABI = [

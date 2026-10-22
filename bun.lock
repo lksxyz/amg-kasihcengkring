@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "studio-app",
+      "name": "kasihcengkring",
       "dependencies": {
         "@circle-fin/adapter-viem-v2": "^1.18.0",
         "@circle-fin/app-kit": "^1.15.2",
