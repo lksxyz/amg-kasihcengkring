@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+dist-ssr/
+*.local
+
+# Netlify
+.netlify/
+
+# Foundry
+contracts/out/
+contracts/cache/
+contracts/broadcast/
+contracts/contract-metadata/*.local.json
+
+# Runtime logs / traces captured by the app shell
+console.jsonl
+traces.jsonl
+*.log
+
+# Env
+.env
+.env.*
+!.env.example
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Pi agent scratch state
+.pi/tasks/
+
+# Test / tooling caches
+coverage/
+.tsbuildinfo
+*.tsbuildinfo
