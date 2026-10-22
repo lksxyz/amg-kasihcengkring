@@ -122,7 +122,7 @@ All 102 detectors ran against the contract. No High, Medium, Low, Informational,
 
 ## Test Coverage
 
-87 Foundry tests, all passing. Coverage targets:
+90 Foundry tests, all passing. Coverage targets:
 
 | Area | Tests |
 |---|---|
@@ -171,6 +171,29 @@ All 102 detectors ran against the contract. No High, Medium, Low, Informational,
 
 ---
 
+## Application Layer
+
+- **No server, no secrets.** The deployed app is a static SPA. Every state-changing call is
+  signed in the user's wallet; Netlify only serves files. There is no API key that can move
+  funds.
+- **Public Supabase key is expected.** `VITE_SUPABASE_ANON_KEY` ships in the bundle. All
+  confidentiality and write control must come from Supabase row-level security. In particular
+  `donations.hidden` updates (history page) rely on RLS; an anon key with broad `UPDATE`
+  rights would let anyone hide or unhide donations. Verify RLS policies before enabling the
+  mirror.
+- **Mirror is untrusted input.** Profile text and donation rows are rendered from Supabase.
+  React escapes text; do not introduce `dangerouslySetInnerHTML` for mirrored fields.
+- **Hosting compromise is UI-only.** A malicious CDN could display false balances or
+  addresses, but cannot sign or move funds. Users must confirm the transaction in their
+  wallet; the contract remains the source of truth.
+- **Baseline headers** are declared in `netlify.toml` (`nosniff`, frame denial, referrer and
+  permissions policies). A strict CSP is not set because ConnectKit/WalletConnect inject
+  inline code; adding one requires testing the wallet flow end to end.
+- **Supply chain.** `bun.lock` is committed and installs are lockfile-frozen in CI/deploys.
+  Review dependency changes before upgrading wallet libraries.
+
+---
+
 ## Deployment
 
 | Network | Address | Deployer | Explorer |
@@ -178,3 +201,6 @@ All 102 detectors ran against the contract. No High, Medium, Low, Informational,
 | Arc Testnet | `0xe9ed1145c0ec41220a1dc6b76bee0b860d078678` | `0xf324b4c7421b21f1ac9926eaf613d192497a0f97` | [View](https://explorer.testnet.arc.io/address/0xe9ed1145c0ec41220a1dc6b76bee0b860d078678) |
 
 Constructor args: `usdc_=0x3600000000000000000000000000000000000000`, `maxDonation_=500000000` (500 USDC), `initialOwner=0xf324b4c7421b21f1ac9926eaf613d192497a0f97`
+
+Web app: static SPA on Netlify. Build, SPA fallback, headers, and the contract-redeploy
+handoff are documented in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).

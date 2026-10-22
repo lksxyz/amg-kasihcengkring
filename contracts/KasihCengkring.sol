@@ -12,7 +12,8 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 /// @title KasihCengkring
 /// @notice Non-custodial USDC creator donation platform on Arc.
 ///         Funds flow directly from donor to creator payout address — the contract never holds funds at rest.
-///         donateWithAuthorization uses Arc-native EIP-3009 receiveWithAuthorization for single-tx donations.
+///         Donations use the two-step ERC-20 approve + donate() flow; an EIP-3009 variant was
+///         evaluated and removed (see the note above the owner section).
 /// @dev    OpenZeppelin 5.1.0; Paris EVM; solc 0.8.28 exact.
 ///         No proxy, no upgradeability, no delegatecall, no selfdestruct, no tx.origin, no platform fee.
 contract KasihCengkring is Ownable2Step, Pausable, ReentrancyGuard {
@@ -259,7 +260,7 @@ contract KasihCengkring is Ownable2Step, Pausable, ReentrancyGuard {
         emit MaxDonationUpdated(oldMax, newMax);
     }
 
-    /// @notice Pause the contract. Blocks register, donate, donateWithAuthorization, updateMinDonation.
+    /// @notice Pause the contract. Blocks register, donate, and updateMinDonation.
     ///         Does NOT block updatePayoutAddress.
     function pause() external nonReentrant onlyOwner {
         _pause();
@@ -345,7 +346,7 @@ contract KasihCengkring is Ownable2Step, Pausable, ReentrancyGuard {
         return keccak256(b);
     }
 
-    /// @dev Shared donation validation — reduces stack depth in donateWithAuthorization.
+    /// @dev Shared donation validation for the donation path.
     function _checkDonation(
         string calldata donorName,
         string calldata message,
