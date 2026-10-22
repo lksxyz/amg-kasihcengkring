@@ -12,6 +12,7 @@ import Layout from '../components/Layout';
 import DonationForm from '../components/DonationForm';
 import { Skeleton, SkeletonText } from '../components/Skeleton';
 import { KASIH_ADDRESS, KASIH_ABI } from '../contract';
+import { validateUsername } from '../lib/utils';
 
 const ARC_CHAIN_ID = arcTestnet.id;
 
@@ -30,14 +31,28 @@ export default function CreatorPage() {
   const supabaseConfigured = !!(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY);
   const [loadingProfile, setLoadingProfile] = useState(supabaseConfigured);
 
-  // Chain: creator info (payout address, min donation, registered)
-  const { data: creatorData, isLoading: isCreatorLoading } = useReadContract({
+  // Chain: creator info (payout address, min donation, registered).
+  // Prefer the non-reverting tryGetCreator; fall back to getCreator for older deployments.
+  const {
+    data: safeCreator,
+    isLoading: isSafeCreatorLoading,
+    error: safeCreatorError,
+  } = useReadContract({
+    address: KASIH_ADDRESS,
+    abi: KASIH_ABI,
+    functionName: 'tryGetCreator',
+    args: [username],
+    chainId: ARC_CHAIN_ID,
+    query: { enabled: username.length >= 3, retry: false },
+  });
+
+  const { data: legacyCreator, isLoading: isLegacyCreatorLoading } = useReadContract({
     address: KASIH_ADDRESS,
     abi: KASIH_ABI,
     functionName: 'getCreator',
     args: [username],
     chainId: ARC_CHAIN_ID,
-    query: { enabled: username.length >= 3 },
+    query: { enabled: username.length >= 3 && !!safeCreatorError, retry: false },
   });
 
   // Chain: global max donation
@@ -68,13 +83,44 @@ export default function CreatorPage() {
       .finally(() => setLoadingProfile(false));
   }, [username]);
 
-  const isRegistered = creatorData?.[2] === true;
-  const minDonation: bigint = creatorData?.[1] ?? 100_000n;
-  const payoutAddress: string = creatorData?.[0] ?? '';
+  const isRegistered = safeCreator ? safeCreator[3] : legacyCreator?.[2] === true;
+  const minDonation: bigint = (safeCreator ? safeCreator[2] : legacyCreator?.[1]) ?? 100_000n;
+  const payoutAddress: string = (safeCreator ? safeCreator[1] : legacyCreator?.[0]) ?? '';
   const maxDon: bigint = maxDonation ?? 1_000_000_000n;
 
+  const isCreatorLoading =
+    isSafeCreatorLoading || (!!safeCreatorError && isLegacyCreatorLoading);
   const isLoading = isCreatorLoading || isMaxLoading || loadingProfile;
-  const notFound = !isLoading && !isCreatorLoading && !isRegistered;
+  // Client-side mirror of the contract rules, plus the contract's own verdict when available.
+  const invalidUsername =
+    validateUsername(username) !== null ||
+    (!isSafeCreatorLoading && !!safeCreator && !safeCreator[0]);
+  const notFound = !isLoading && !isRegistered && !invalidUsername;
+
+  if (invalidUsername) {
+    return (
+      <Layout minimal>
+        <div className="shell page">
+          <div className="mx-auto max-w-xl">
+            <div className="card flex flex-col items-start gap-4 p-6 sm:p-8">
+              <div>
+                <h1 className="display text-2xl font-bold" style={{ color: 'var(--ink)' }}>
+                  @{username}
+                </h1>
+                <p className="mt-1 text-sm" style={{ color: 'var(--muted)' }}>
+                  That username isn&apos;t valid. Use 3–20 characters: a–z, 0–9, and _.
+                </p>
+              </div>
+              <Link to="/app" className="btn btn-primary">
+                <UserPlus className="size-4" aria-hidden="true" />
+                Choose a username
+              </Link>
+            </div>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
   const displayName = profile?.display_name ?? username;
 
   if (notFound) {

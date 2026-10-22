@@ -78,6 +78,9 @@ export function decodeRevert(err: unknown): string {
   if (msg.includes('AlreadyRegistered')) return 'This wallet already has a username.';
   if (msg.includes('NotRegistered')) return 'Creator not found.';
   if (msg.includes('ZeroAddress')) return 'Invalid address.';
+  if (msg.includes('InvalidPayoutAddress')) return 'That payout address cannot be used.';
+  if (msg.includes('InvalidToken')) return 'The USDC token is misconfigured for this deployment.';
+  if (msg.includes('RenounceDisabled')) return 'Ownership cannot be renounced for this contract.';
   if (msg.includes('Pausable: paused') || msg.includes('EnforcedPause')) return 'The platform is paused right now. Try again later.';
   if (
     msg.includes('insufficient funds') ||

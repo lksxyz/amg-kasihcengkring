@@ -94,6 +94,27 @@ contract KasihCengkringTest is Test {
         assertEq(c.maxDonation(), MIN_FLOOR);
     }
 
+    function test_Constructor_RejectsNonContractUSDC() public {
+        vm.expectRevert(KasihCengkring.InvalidToken.selector);
+        new KasihCengkring(makeAddr("notAToken"), DEFAULT_MAX, owner);
+    }
+
+    function test_Constructor_RejectsWrongDecimals() public {
+        MockERC20 eighteen = new MockERC20("Wrong", "WRONG", 18);
+        vm.expectRevert(
+            abi.encodeWithSelector(KasihCengkring.InvalidTokenDecimals.selector, uint8(18))
+        );
+        new KasihCengkring(address(eighteen), DEFAULT_MAX, owner);
+    }
+
+    function test_Constructor_RejectsZeroDecimals() public {
+        MockERC20 zeroDecimals = new MockERC20("Zero", "ZERO", 0);
+        vm.expectRevert(
+            abi.encodeWithSelector(KasihCengkring.InvalidTokenDecimals.selector, uint8(0))
+        );
+        new KasihCengkring(address(zeroDecimals), DEFAULT_MAX, owner);
+    }
+
     // =========================================================================
     //  2 · Registration — happy path & events
     // =========================================================================
@@ -410,6 +431,17 @@ contract KasihCengkringTest is Test {
         board.donate("alice", "Bob", "Hello!", amount);
     }
 
+    function test_Donate_ConsumesExactAllowance() public {
+        _registerAlice();
+        uint256 amount = CREATOR_MIN;
+        _fundAndApprove(amount);
+
+        assertEq(usdc.allowance(donor, address(board)), amount, "allowance before");
+        vm.prank(donor);
+        board.donate("alice", "Donor", "msg", amount);
+        assertEq(usdc.allowance(donor, address(board)), 0, "no residual allowance");
+    }
+
     function test_Donate_ExactlyEffectiveMin() public {
         _registerAlice();
         _fundAndApprove(CREATOR_MIN);
@@ -688,6 +720,27 @@ contract KasihCengkringTest is Test {
         assertEq(usdc.balanceOf(payout1), CREATOR_MIN);
     }
 
+    function test_RenounceOwnership_Reverts() public {
+        vm.prank(owner);
+        vm.expectRevert(KasihCengkring.RenounceDisabled.selector);
+        board.renounceOwnership();
+    }
+
+    function test_RenounceOwnership_StillRevertsWhenPaused() public {
+        vm.prank(owner);
+        board.pause();
+
+        vm.prank(owner);
+        vm.expectRevert(KasihCengkring.RenounceDisabled.selector);
+        board.renounceOwnership();
+
+        // Owner is intact, so the contract can still be unpaused.
+        assertEq(board.owner(), owner);
+        vm.prank(owner);
+        board.unpause();
+        assertFalse(board.paused());
+    }
+
     // =========================================================================
     //  15 · updateMinDonation
     // =========================================================================
@@ -877,6 +930,40 @@ contract KasihCengkringTest is Test {
         assertEq(board.getUsernameHash(stranger), bytes32(0));
     }
 
+    function test_GetUsernameByHash_Registered() public {
+        _registerAlice();
+        assertEq(board.getUsernameByHash(keccak256(bytes("alice"))), "alice");
+    }
+
+    function test_GetUsernameByHash_UnknownReturnsEmpty() public view {
+        assertEq(board.getUsernameByHash(keccak256(bytes("nobody"))), "");
+    }
+
+    function test_TryGetCreator_Registered() public {
+        _registerAlice();
+        (bool valid, address pa, uint256 minD, bool reg) = board.tryGetCreator("alice");
+        assertTrue(valid);
+        assertEq(pa, payout1);
+        assertEq(minD, CREATOR_MIN);
+        assertTrue(reg);
+    }
+
+    function test_TryGetCreator_ValidButUnregistered() public view {
+        (bool valid, address pa, uint256 minD, bool reg) = board.tryGetCreator("bob");
+        assertTrue(valid);
+        assertEq(pa, address(0));
+        assertEq(minD, 0);
+        assertFalse(reg);
+    }
+
+    function test_TryGetCreator_InvalidDoesNotRevert() public view {
+        (bool valid, address pa, uint256 minD, bool reg) = board.tryGetCreator("ALICE");
+        assertFalse(valid);
+        assertEq(pa, address(0));
+        assertEq(minD, 0);
+        assertFalse(reg);
+    }
+
     // =========================================================================
     //  19 · Reentrancy guard
     // =========================================================================
@@ -896,20 +983,23 @@ contract KasihCengkringTest is Test {
         // Arm the mock so transferFrom fires the reentrant call
         usdc.armAttack(address(board), reentrantCall);
 
-        // Fund donor (needs enough for potential double donate)
-        usdc.mint(donor, CREATOR_MIN * 2);
-        vm.prank(donor);
-        usdc.approve(address(board), type(uint256).max);
+        // The reentrant call originates from the token contract, so give the token a
+        // balance and an allowance. This makes the inner donation succeed if the guard
+        // were absent — otherwise the test would pass for unrelated reasons.
+        usdc.mint(address(usdc), CREATOR_MIN);
+        vm.prank(address(usdc));
+        usdc.approve(address(board), CREATOR_MIN);
 
-        // The outer donate should succeed; the inner reentrant one should revert
-        // (ReentrancyGuard reverts without a friendly message — use expectRevert())
-        // The outer call succeeds because the inner reentrant call's revert is
-        // caught by the MockERC20's low-level call and ignored.
+        // Fund donor for the outer call
+        _fundAndApprove(CREATOR_MIN);
+
         vm.prank(donor);
         board.donate("alice", "attacker", "first", CREATOR_MIN);
 
-        // Contract should still have 0 balance (non-custodial)
-        assertEq(usdc.balanceOf(address(board)), 0);
+        // The guard must have reverted the inner donation, so only the outer one lands.
+        assertFalse(usdc.attackSucceeded(), "inner donate should revert under the guard");
+        assertEq(usdc.balanceOf(payout1), CREATOR_MIN, "exactly one donation should land");
+        assertEq(usdc.balanceOf(address(board)), 0, "contract stays non-custodial");
     }
 
     // =========================================================================
@@ -1104,6 +1194,17 @@ contract KasihCengkringInvariantTest is Test {
     /// @notice maxDonation must always be >= MIN_DONATION_FLOOR.
     function invariant_MaxDonationAboveFloor() public view {
         assertGe(board.maxDonation(), board.MIN_DONATION_FLOOR(), "maxDonation must be >= floor");
+    }
+
+    /// @notice A registered creator always has a valid payout address and min >= floor.
+    function invariant_RegisteredCreatorStateIsValid() public view {
+        (address pa, uint256 minD, bool reg) = board.getCreatorByHash(keccak256(bytes("handler")));
+        if (!reg) return;
+
+        assertTrue(pa != address(0), "payout must be non-zero");
+        assertTrue(pa != address(usdc), "payout must not be the token");
+        assertTrue(pa != address(board), "payout must not be the contract");
+        assertGe(minD, board.MIN_DONATION_FLOOR(), "creator min must be >= floor");
     }
 
     /// @notice Paused state must always be a valid boolean (no corruption).

@@ -6,6 +6,7 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {Ownable2Step, Ownable} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 
 
 
@@ -65,6 +66,9 @@ contract KasihCengkring is Ownable2Step, Pausable, ReentrancyGuard {
     error MinBelowFloor(uint256 min, uint256 floor);
     error MaxBelowFloor(uint256 max, uint256 floor);
     error InvalidPayoutAddress();
+    error InvalidToken();
+    error InvalidTokenDecimals(uint8 decimals);
+    error RenounceDisabled();
 
     // ─────────────────────────────────────────────────────────────────────────
     //  Events
@@ -100,6 +104,10 @@ contract KasihCengkring is Ownable2Step, Pausable, ReentrancyGuard {
 
     constructor(address usdc_, uint256 maxDonation_, address initialOwner) Ownable(initialOwner) {
         if (usdc_ == address(0)) revert ZeroAddress();
+        if (usdc_.code.length == 0) revert InvalidToken();
+        // MIN_DONATION_FLOOR is expressed in 6-decimal units; reject a misconfigured token.
+        uint8 tokenDecimals = IERC20Metadata(usdc_).decimals();
+        if (tokenDecimals != 6) revert InvalidTokenDecimals(tokenDecimals);
         if (maxDonation_ < MIN_DONATION_FLOOR) revert MaxBelowFloor(maxDonation_, MIN_DONATION_FLOOR);
 
         usdc = IERC20(usdc_);
@@ -271,6 +279,12 @@ contract KasihCengkring is Ownable2Step, Pausable, ReentrancyGuard {
         _unpause();
     }
 
+    /// @notice Disabled. Renouncing ownership while paused would permanently freeze
+    ///         registration and donations, with no way to unpause.
+    function renounceOwnership() public view override onlyOwner {
+        revert RenounceDisabled();
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     //  External: Views
     // ─────────────────────────────────────────────────────────────────────────
@@ -285,6 +299,23 @@ contract KasihCengkring is Ownable2Step, Pausable, ReentrancyGuard {
         return (creator.payoutAddress, creator.minDonation, creator.registered);
     }
 
+    /// @notice Non-reverting variant of {getCreator} for untrusted input.
+    /// @return valid          False if `username` fails length/charset validation.
+    /// @return payoutAddress  Zero when the username is invalid or unregistered.
+    /// @return minDonation    Zero when the username is invalid or unregistered.
+    /// @return registered     True only for a registered creator.
+    function tryGetCreator(string calldata username)
+        external
+        view
+        returns (bool valid, address payoutAddress, uint256 minDonation, bool registered)
+    {
+        bytes calldata b = bytes(username);
+        if (!_isValidUsername(b)) return (false, address(0), 0, false);
+
+        Creator storage creator = creators[keccak256(b)];
+        return (true, creator.payoutAddress, creator.minDonation, creator.registered);
+    }
+
     function getCreatorByHash(bytes32 usernameHash)
         external
         view
@@ -292,6 +323,11 @@ contract KasihCengkring is Ownable2Step, Pausable, ReentrancyGuard {
     {
         Creator storage creator = creators[usernameHash];
         return (creator.payoutAddress, creator.minDonation, creator.registered);
+    }
+
+    /// @notice Raw username registered for a hash (empty string if unknown).
+    function getUsernameByHash(bytes32 usernameHash) external view returns (string memory) {
+        return usernameByHash[usernameHash];
     }
 
     function getUsernameHash(address wallet) external view returns (bytes32) {
@@ -305,16 +341,7 @@ contract KasihCengkring is Ownable2Step, Pausable, ReentrancyGuard {
     /// @notice Returns true iff the username is valid, not reserved, and not already taken.
     function isUsernameAvailable(string calldata username) external view returns (bool) {
         bytes calldata b = bytes(username);
-        uint256 length = b.length;
-        if (length < MIN_USERNAME_LENGTH || length > MAX_USERNAME_LENGTH) return false;
-
-        for (uint256 i = 0; i < length; ++i) {
-            bytes1 char = b[i];
-            bool valid = (char >= 0x61 && char <= 0x7A) // a-z
-                || (char >= 0x30 && char <= 0x39)        // 0-9
-                || char == 0x5F;                         // _
-            if (!valid) return false;
-        }
+        if (!_isValidUsername(b)) return false;
 
         bytes32 usernameHash = keccak256(b);
         if (reservedUsernames[usernameHash]) return false;
@@ -331,19 +358,24 @@ contract KasihCengkring is Ownable2Step, Pausable, ReentrancyGuard {
     ///      Reverts UsernameInvalid if length or character set fails.
     function _validateUsername(string calldata username) internal pure returns (bytes32) {
         bytes calldata b = bytes(username);
-        uint256 length = b.length;
+        if (!_isValidUsername(b)) revert UsernameInvalid();
+        return keccak256(b);
+    }
 
-        if (length < MIN_USERNAME_LENGTH || length > MAX_USERNAME_LENGTH) revert UsernameInvalid();
+    /// @dev Single source of truth for username syntax: a-z, 0-9, _; 3–20 bytes.
+    function _isValidUsername(bytes calldata b) internal pure returns (bool) {
+        uint256 length = b.length;
+        if (length < MIN_USERNAME_LENGTH || length > MAX_USERNAME_LENGTH) return false;
 
         for (uint256 i = 0; i < length; ++i) {
             bytes1 char = b[i];
             bool valid = (char >= 0x61 && char <= 0x7A) // a-z
                 || (char >= 0x30 && char <= 0x39)        // 0-9
                 || char == 0x5F;                         // _
-            if (!valid) revert UsernameInvalid();
+            if (!valid) return false;
         }
 
-        return keccak256(b);
+        return true;
     }
 
     /// @dev Shared donation validation for the donation path.

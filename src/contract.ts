@@ -37,6 +37,25 @@ export const KASIH_ABI = [
   },
   {
     type: 'function',
+    name: 'tryGetCreator',
+    stateMutability: 'view',
+    inputs: [{ name: 'username', type: 'string' }],
+    outputs: [
+      { name: 'valid', type: 'bool' },
+      { name: 'payoutAddress', type: 'address' },
+      { name: 'minDonation', type: 'uint256' },
+      { name: 'registered', type: 'bool' },
+    ],
+  },
+  {
+    type: 'function',
+    name: 'getUsernameByHash',
+    stateMutability: 'view',
+    inputs: [{ name: 'usernameHash', type: 'bytes32' }],
+    outputs: [{ type: 'string' }],
+  },
+  {
+    type: 'function',
     name: 'isUsernameAvailable',
     stateMutability: 'view',
     inputs: [{ name: 'username', type: 'string' }],
@@ -127,4 +146,7 @@ export const KASIH_ABI = [
   { type: 'error', name: 'UsernameReserved', inputs: [] },
   { type: 'error', name: 'AlreadyRegistered', inputs: [] },
   { type: 'error', name: 'NotRegistered', inputs: [] },
+  { type: 'error', name: 'InvalidToken', inputs: [] },
+  { type: 'error', name: 'InvalidTokenDecimals', inputs: [{ name: 'decimals', type: 'uint8' }] },
+  { type: 'error', name: 'RenounceDisabled', inputs: [] },
 ] as const;

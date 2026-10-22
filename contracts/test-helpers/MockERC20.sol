@@ -16,6 +16,7 @@ contract MockERC20 {
     address public attackTarget;
     bytes public attackCalldata;
     bool public attackArmed;
+    bool public attackSucceeded;
     bool private _inAttack;
 
     constructor(string memory _name, string memory _symbol, uint8 _decimals) {
@@ -54,11 +55,11 @@ contract MockERC20 {
         // Fire reentrancy attack after the transfer if armed.
         if (attackArmed && !_inAttack) {
             _inAttack = true;
+            // Record whether the reentrant call succeeded so tests can assert that the
+            // guard blocked it, rather than relying on incidental side effects.
             // solhint-disable-next-line avoid-low-level-calls
             (bool ok,) = attackTarget.call(attackCalldata);
-            // We deliberately ignore the return value — the test checks whether the outer
-            // call succeeded/reverted rather than the inner one.
-            ok; // silence warning
+            attackSucceeded = ok;
             _inAttack = false;
         }
 

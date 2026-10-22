@@ -77,16 +77,22 @@ in a comment at the removal site, so nobody reintroduces it by accident.
 **Creator flow**
 
 - `register(username, payoutAddress, minDonation)` — new wallet, available username, payout
-  not zero/USDC/contract, min ≥ 0.10 USDC.
+  not zero / the USDC token / the contract itself, min ≥ 0.10 USDC.
 - `updatePayoutAddress` — callable **while paused**; creators must always be able to redirect
   incoming funds after a key compromise.
 - `updateMinDonation` — paused with donations and registration.
 - Usernames are immutable: no rename, transfer, or delete.
 
+The constructor verifies the token has code and exactly 6 decimals before accepting it.
+`tryGetCreator(username)` is the non-reverting read for untrusted input, and
+`getUsernameByHash(hash)` resolves a hash back to its raw username.
+
 **Owner flow**
 
 - `pause` / `unpause`, `setMaxDonation` (≥ floor).
 - Ownership is `Ownable2Step`: the new owner must accept.
+- `renounceOwnership` is disabled: renouncing while paused would permanently freeze registration
+  and donations.
 - The owner cannot move funds, change payout addresses, or edit creator data.
 
 **Invariant:** the contract's USDC balance is always zero. No rescue function exists because
@@ -119,7 +125,8 @@ network entry is needed.
 **Data policy**
 
 - Chain reads (`useReadContract`) are authoritative: creator record, min/max, availability,
-  allowance, `paused`.
+  allowance, `paused`. The app prefers `tryGetCreator` and `getUsernameByHash`, and falls back
+  to `getCreator` / `CreatorRegistered` logs when talking to a deployment that predates them.
 - Supabase is a convenience mirror: profile metadata, donation list, aggregate stats. All
   fetches are guarded by `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` and fail silently to
   empty states. No Supabase credentials are required to donate or register.

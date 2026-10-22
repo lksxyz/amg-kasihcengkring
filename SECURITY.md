@@ -63,13 +63,19 @@ The contract **never holds funds at rest** — its USDC balance is always zero.
 `nonReentrant` (OpenZeppelin `ReentrancyGuard`) on all state-changing external functions.
 `donate()` follows checks-effects-interactions: all storage reads are cached before the event is emitted,
 and the `safeTransferFrom` interaction is last.
-Covered by `test_ReentrancyGuard_DonateBlocksReentrantDonate`.
+Covered by `test_ReentrancyGuard_DonateBlocksReentrantDonate`, which funds and approves the malicious
+token itself so the inner donation would succeed if the guard were removed, then asserts the inner call
+failed and exactly one donation reached the payout address.
 
 ### Access control
 
 `Ownable2Step`: ownership transfer requires the new owner to explicitly accept (`acceptOwnership()`).
 This prevents accidental ownership transfers to wrong addresses.
 Covered by `test_Ownable2Step_*` tests.
+
+`renounceOwnership()` is disabled (`RenounceDisabled`). Renouncing while paused would permanently
+freeze registration and donations because no address could ever unpause. Covered by
+`test_RenounceOwnership_*`.
 
 ### Pausing
 
@@ -86,11 +92,18 @@ Covered by `test_Pause_*` and `test_Unpause_*` tests.
 
 ### Input validation
 
-- Username: `a-z 0-9 _`, 3–20 chars, uppercase rejected (not converted), checked byte-by-byte.
-- Payout address: cannot be `address(0)`, `address(usdc)`, or `address(this)`.
+- Token: constructor rejects `address(0)`, an address with no code, and any token whose
+  `decimals()` is not exactly 6 (`InvalidToken` / `InvalidTokenDecimals`), because
+  `MIN_DONATION_FLOOR` is expressed in 6-decimal units.
+- Username: `a-z 0-9 _`, 3–20 chars, uppercase rejected (not converted), checked byte-by-byte
+  by one shared helper used by `register`, `donate`, `getCreator`, and `isUsernameAvailable`.
+- Payout address: cannot be `address(0)`, `address(usdc)`, or `address(this)`. Any other
+  address is allowed, including multisigs and splitters.
 - `donorName`: ≤ 40 bytes.
 - `message`: ≤ 200 bytes.
 - Reserved usernames: admin, support, help, root, system, moderator, mod, owner, kasih, cengkring, kasihcengkring, donate, tip, about, faq, app, api, www, mail, static, assets, images.
+- `tryGetCreator(username)` is the non-reverting read path for untrusted input;
+  `getUsernameByHash(hash)` resolves a hash back to its raw username.
 
 ### EIP-3009 rationale
 
@@ -116,27 +129,33 @@ Slither 0.11.6 against `KasihCengkring.sol` with `--filter-paths node_modules`:
 
 > **0 findings**
 
-All 102 detectors ran against the contract. No High, Medium, Low, Informational, or Optimization findings.
+All 102 detectors ran against the contract (13 contracts including OpenZeppelin dependencies). No High, Medium, Low, Informational, or Optimization findings.
 
 ---
 
 ## Test Coverage
 
-90 Foundry tests, all passing. Coverage targets:
+**102 Foundry tests, all passing.** `arc-forge coverage --report summary` for
+`KasihCengkring.sol`: **100% lines (130/130), 98.67% statements (148/150), 93.75% branches
+(30/32), 100% functions (20/20)**. The two uncovered statements/branches are the unreachable
+`!creator.registered` defensive checks in `updatePayoutAddress` and `updateMinDonation` (a
+registered wallet can never map to an unregistered creator).
 
 | Area | Tests |
 |---|---|
 | Registration edge cases | 20 tests (invalid chars, lengths, reserved, taken, paused, zero address, USDC address, contract address) |
-| Donation happy path + balance accounting | Balance delta verified on donor and creator for every happy-path test |
+| Donation happy path + balance accounting | Balance delta verified on donor and creator for every happy-path test; exact allowance fully consumed |
 | Min/max/floor boundaries | Exact-boundary tests + fuzz `testFuzz_donateSucceedsIffInRange` (256 runs) |
 | effectiveMin behavior | `maxDonation` lowered below creator min — boundary tested both ways |
 | Paused state | All paused-blocked functions + updatePayoutAddress works while paused |
-| Reentrancy | Reentrant donate via malicious MockERC20 |
+| Reentrancy | Reentrant donate via malicious MockERC20; asserts the inner call failed and only one donation landed |
 | Payout address blocked | contract address, USDC address, zero address |
-| Access control | Non-owner pause/unpause/setMaxDonation all revert |
+| Constructor token checks | zero address, non-contract, 0/18 decimals, max == floor |
+| Access control | Non-owner pause/unpause/setMaxDonation all revert; `renounceOwnership` always reverts |
 | Two-step ownership | Transfer does not change owner; stranger cannot accept; new owner must accept |
+| New views | `tryGetCreator` (valid/unregistered/invalid), `getUsernameByHash` (known/unknown) |
 | Event field values | DonationReceived, CreatorRegistered, PayoutAddressUpdated, MinDonationUpdated, MaxDonationUpdated all verified |
-| Invariant | Contract USDC balance is always zero |
+| Invariants | Contract USDC balance always zero; max ≥ floor; registered payout/min remain valid |
 
 ---
 
@@ -164,10 +183,12 @@ All 102 detectors ran against the contract. No High, Medium, Low, Informational,
 ## Known Limitations
 
 - **maxDonation is a risk control, not an AML solution.** The operator is responsible for compliance with applicable laws. `maxDonation` can slow high-volume actors but does not enforce identity or jurisdiction checks.
-- **Payout address is not verified.** Creators can set any valid non-zero, non-contract-address as their payout. If they set an address they do not control, donations are permanently unrecoverable.
-- **Username squatting.** Usernames are first-come, first-served on-chain. There is no dispute resolution.
+- **Payout address is not verified.** Creators can set any non-zero address other than the USDC token or the contract itself, including a contract address (e.g. a multisig or splitter). If they set an address they do not control, donations are permanently unrecoverable.
+- **Stray tokens are unrecoverable.** There is no rescue function by design; anyone who transfers USDC directly to the contract loses it. Do not send funds to the contract address.
+- **`maxDonation` can be lowered to the floor.** The owner can cap all donations at 0.10 USDC. Funds are never at risk, but the product can be made uneconomic.
+- **Username squatting.** Usernames are first-come, first-served on-chain. There is no dispute resolution, rename, transfer, or recovery for a lost creator key.
 - **No refunds.** Donations are irreversible once `donate()` is confirmed.
-- **Not audited.** A formal third-party audit is strongly recommended before mainnet deployment with significant volume.
+- **Not externally audited.** A formal third-party audit is strongly recommended before mainnet deployment with significant volume.
 
 ---
 
@@ -201,6 +222,12 @@ All 102 detectors ran against the contract. No High, Medium, Low, Informational,
 | Arc Testnet | `0xe9ed1145c0ec41220a1dc6b76bee0b860d078678` | `0xf324b4c7421b21f1ac9926eaf613d192497a0f97` | [View](https://explorer.testnet.arc.io/address/0xe9ed1145c0ec41220a1dc6b76bee0b860d078678) |
 
 Constructor args: `usdc_=0x3600000000000000000000000000000000000000`, `maxDonation_=500000000` (500 USDC), `initialOwner=0xf324b4c7421b21f1ac9926eaf613d192497a0f97`
+
+> **Source vs deployed.** The address above predates the hardening in this repository
+> (constructor token/decimals checks, disabled `renounceOwnership`, `tryGetCreator`,
+> `getUsernameByHash`, shared username validator). The on-chain instance still runs the
+> previous build; redeploy and update `VITE_KASIH_ADDRESS` / the tables above to adopt the
+> fixes on-chain.
 
 Web app: static SPA on Netlify. Build, SPA fallback, headers, and the contract-redeploy
 handoff are documented in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
