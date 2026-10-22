@@ -6,9 +6,15 @@ export default {
   ],
   theme: {
     extend: {
-      // Add your custom colors, fonts, etc. here
+      fontFamily: {
+        sans: ['"Atkinson Hyperlegible Next Variable"', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        display: ['"Bricolage Grotesque"', '"Atkinson Hyperlegible Next Variable"', 'ui-sans-serif', 'sans-serif'],
+        mono: ['"JetBrains Mono"', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
+      },
+      maxWidth: {
+        shell: '72rem',
+      },
     },
   },
   plugins: [],
 }
-

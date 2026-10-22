@@ -12,6 +12,7 @@
 
 import './tracing'
 import './console-capture'
+import '@fontsource-variable/atkinson-hyperlegible-next'
 
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -38,6 +39,8 @@ const StudioWatermark = () => (
     href="https://studio.arc.io/"
     target="_blank"
     rel="noopener noreferrer"
+    aria-label="Built with Arc Studio"
+    className="studio-watermark"
     style={{
       position: 'fixed',
       bottom: '16px',
@@ -45,24 +48,24 @@ const StudioWatermark = () => (
       display: 'flex',
       alignItems: 'center',
       gap: '6px',
-      padding: '8px 14px',
-      fontSize: '12px',
+      padding: '7px 12px',
+      fontSize: '11px',
       fontWeight: 600,
-      fontFamily: 'system-ui, -apple-system, sans-serif',
-      color: '#1B3158',
+      fontFamily: "'Atkinson Hyperlegible Next Variable', ui-sans-serif, system-ui, sans-serif",
+      color: '#33402d',
       textDecoration: 'none',
       cursor: 'pointer',
-      background: 'rgba(172, 198, 233, 0.85)',
-      backdropFilter: 'blur(12px) saturate(180%)',
-      WebkitBackdropFilter: 'blur(12px) saturate(180%)',
-      borderRadius: '20px',
-      border: '1px solid rgba(255, 255, 255, 0.4)',
+      background: 'rgba(255, 254, 249, 0.92)',
+      backdropFilter: 'blur(12px)',
+      WebkitBackdropFilter: 'blur(12px)',
+      borderRadius: '999px',
+      border: '1px solid rgba(16, 27, 13, 0.14)',
       zIndex: 9999,
-      boxShadow: '0 4px 20px rgba(27, 49, 88, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.5)',
+      boxShadow: '0 1px 2px rgba(16, 27, 13, 0.06), 0 8px 24px -16px rgba(16, 27, 13, 0.3)',
     }}
   >
     <StudioLogo />
-    Built with Arc Studio
+    <span className="studio-watermark-text">Built with Arc Studio</span>
   </a>
 )
 
@@ -70,7 +73,35 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <WagmiProvider config={config}>
       <QueryClientProvider client={queryClient}>
-        <ConnectKitProvider>
+        <ConnectKitProvider
+          mode="light"
+          customTheme={{
+            '--ck-font-family': "'Atkinson Hyperlegible Next Variable', ui-sans-serif, system-ui, sans-serif",
+            '--ck-border-radius': '16px',
+            '--ck-focus-color': '#2f6a1e',
+            '--ck-body-background': '#fffef9',
+            '--ck-body-color': '#101b0d',
+            '--ck-body-color-muted': '#4e5b48',
+            '--ck-body-divider': 'rgba(16, 27, 13, 0.14)',
+            '--ck-overlay-background': 'rgba(16, 27, 13, 0.45)',
+            '--ck-accent-color': '#c7f04a',
+            '--ck-accent-text-color': '#101b0d',
+            '--ck-connectbutton-background': '#101b0d',
+            '--ck-connectbutton-color': '#ffffff',
+            '--ck-connectbutton-hover-background': '#1e5b33',
+            '--ck-connectbutton-hover-color': '#ffffff',
+            '--ck-connectbutton-active-background': '#1e5b33',
+            '--ck-connectbutton-active-color': '#ffffff',
+            '--ck-primary-button-background': '#101b0d',
+            '--ck-primary-button-color': '#ffffff',
+            '--ck-primary-button-hover-background': '#1e5b33',
+            '--ck-primary-button-hover-color': '#ffffff',
+            '--ck-secondary-button-background': '#eef2e3',
+            '--ck-secondary-button-color': '#101b0d',
+            '--ck-qr-dot-color': '#101b0d',
+            '--ck-qr-background': '#ffffff',
+          }}
+        >
           <App />
           <StudioWatermark />
           <Toaster position="top-center" />

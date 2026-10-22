@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:local": "bun run scripts/dev-local.ts",
     "build": "vite build",
     "preview": "vite preview",
     "deploy": "bun run build && bunx netlify-cli deploy --prod --dir=dist",
@@ -25,6 +26,7 @@
     "@circle-fin/smart-contract-platform": "^10.8.0",
     "@circle-fin/user-controlled-wallets": "^10.8.0",
     "@circle-fin/w3s-pw-web-sdk": "^1.1.11",
+    "@fontsource-variable/atkinson-hyperlegible-next": "^5.3.0",
     "@openzeppelin/contracts": "5.1.0",
     "@tanstack/react-query": "^5.62.7",
     "@web3icons/react": "^4.0.0",
@@ -52,6 +54,7 @@
     "oxlint": "^1.80.0",
     "oxlint-tsgolint": "^7.0.2001",
     "postcss": "^8.4.49",
+    "supabase": "^2.121.0",
     "tailwindcss": "^3.4.17",
     "typescript": "~7.0.2",
     "vite": "^6.0.5",
