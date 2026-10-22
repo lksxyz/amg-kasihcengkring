@@ -61,9 +61,13 @@ need no account.
 ```bash
 bun install
 bun run dev        # http://localhost:5173
+bun run dev:local  # local Arc node + deploy + funded wallet + frontend
 bun run check      # lint + typecheck
 bun run build      # production bundle
 ```
+
+`dev:local` requires the foundry-arc fork (`arc-anvil`). It writes `.env.localdev` and runs
+Vite with `--mode localdev`, so plain `bun run dev` still targets Arc Testnet.
 
 No environment variables are required for local development; `.env.example` documents the
 optional ones.

@@ -72,6 +72,7 @@ src/
   onchain-wait.ts           GENERATED Circle transaction state machine
   tracing.ts                GENERATED diagnostics
 scripts/                    deploy + ABI fetch tooling
+supabase/migrations/        profiles, donations, avatar bucket (optional mirror)
 docs/
   ARCHITECTURE.md           system design and data flow
   DEPLOYMENT.md             Netlify deployment and operations
@@ -95,10 +96,65 @@ bun run dev               # http://localhost:5173
 The app targets Arc Testnet. Add the network to your wallet when prompted; the UI offers a
 switch button on the wrong chain.
 
+### Local full loop (`bun run dev:local`)
+
+One command starts the entire stack locally. It needs the **foundry-arc** fork
+(`arc-anvil`), because stock anvil has no Arc system contracts:
+
+```bash
+bun run dev:local
+```
+
+What it does:
+
+1. Starts `arc-anvil` on `127.0.0.1:8545` with chain ID `5042002` (reuses a node that is
+   already running on that port).
+2. Deploys `KasihCengkring` with the predeployed USDC (`0x3600…0000`), `maxDonation` 500 USDC,
+   and the dev account as owner.
+3. Funds `0xEf98df2e76dDA409fdF1F03889d150AAd387E86B` with native gas and ERC-20 USDC so the
+   wallet can donate immediately.
+4. Writes `.env.localdev` (`VITE_ARC_RPC_URL`, `VITE_ARC_CHAIN_NAME`, contract address) and
+   serves the app in Vite mode `localdev` at `http://localhost:5173`.
+5. The header **Arc Local** button adds and switches MetaMask to that RPC
+   (`wallet_addEthereumChain` + `wallet_switchEthereumChain`); the chain ID is read from the
+   RPC, not hardcoded. If MetaMask already has a network for the same chain ID with a
+   different RPC, the button says so instead of switching silently.
+
+Wallet setup for the local node:
+
+| Field | Value |
+|---|---|
+| RPC URL | `http://127.0.0.1:8545` |
+| Chain ID | `5042002` |
+| Symbol | `USDC` |
+
+Manual entry is optional: use the header network button.
+
+To act as a creator (register, change payout, pause), import the dev owner key printed by the
+script. State is in memory: restarting the node wipes it.
+
+If MetaMask complains `RPC endpoint returned too many errors`:
+
+- Use `http://127.0.0.1:8545`, **not** `http://localhost:8545`. On many Linux setups
+  `localhost` resolves to IPv6 `::1`, while anvil listens on IPv4 only, so every poll fails.
+- Keep `dev:local` running. Stopping/restarting it while MetaMask polls causes the same
+  backoff; wait ~10 s or switch networks away and back after the node is up.
+- Confirm the node is healthy: `curl -s -X POST -H 'content-type: application/json'
+  --data '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}' http://127.0.0.1:8545`.
+- Request logs go to `.dev-local/anvil.log`.
+
+Environment overrides: `ARC_ANVIL`, `ARC_PORT`, `DEV_PORT`, `FUND_ADDRESSES` (comma-separated,
+defaults include the demo wallets), `FUND_ADDRESS` (single wallet alias), `FUND_NATIVE`,
+`FUND_USDC`. There is no local database: the Supabase mirror is optional, and without it the
+UI runs on chain reads alone.
+
 ### Environment
 
 | Variable | Required | Purpose |
 |---|---|---|
+| `VITE_ARC_RPC_URL` | no | RPC this build talks to (local / testnet / mainnet). Unset = viem default. |
+| `VITE_ARC_CHAIN_NAME` | no | Display name used when the header button adds the network. |
+| `VITE_ARC_EXPLORER_URL` | no | Explorer URL used when the header button adds the network. |
 | `VITE_KASIH_ADDRESS` | no | Contract address. Defaults to the deployed Arc Testnet instance. |
 | `VITE_SUPABASE_URL` | no | Supabase project URL for profile/history mirror. |
 | `VITE_SUPABASE_ANON_KEY` | no | Supabase anon key (RLS must be configured server-side). |
@@ -108,6 +164,7 @@ switch button on the wrong chain.
 | Command | What it does |
 |---|---|
 | `bun run dev` | Vite dev server |
+| `bun run dev:local` | Local Arc node + deploy + funded wallet + Vite (see below) |
 | `bun run build` | Production bundle into `dist/` |
 | `bun run preview` | Serve the built bundle locally |
 | `bun run deploy` | Build, then `netlify deploy --prod` (needs Netlify auth) |
@@ -140,6 +197,13 @@ Bun `1.3.14`, SPA rewrite `/* → /index.html`, immutable caching for `/assets/*
 > whole deployment surface. If the project later needs IaC, the natural move is
 > `Cloudflare.Website.Vite`, which changes the host. See
 > [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#why-netlify-and-not-alchemy).
+
+## Optional Supabase mirror
+
+`supabase/migrations/` contains the profile, donation, and avatar-bucket schema. Apply it
+with `supabase db push` (or paste the files in order into the SQL editor), then set
+`VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY`. See
+[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#supabase-mirror-optional).
 
 ## Security
 

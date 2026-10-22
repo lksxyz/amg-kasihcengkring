@@ -20,7 +20,10 @@ console.jsonl
 traces.jsonl
 *.log
 
-# Env
+# Local Arc node (`bun run dev:local`)
+.dev-local/
+
+# Environment
 .env
 .env.*
 !.env.example

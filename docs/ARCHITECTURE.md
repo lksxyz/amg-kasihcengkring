@@ -111,7 +111,10 @@ nothing should ever be inside the contract. A Foundry invariant test enforces th
 
 **wagmi config** (`src/config.ts`): Arc Testnet as the write chain, Ethereum mainnet only
 for ENS resolution in ConnectKit. Transport is the chain's default public RPC; there is no
-platform RPC key.
+platform RPC key. `VITE_ARC_RPC_URL` overrides the transport (local node, testnet, or a
+mainnet node); `bun run dev:local` writes it as `http://127.0.0.1:8545`. The header network
+button reads the chain ID from that RPC and adds/switches the wallet to it, so no manual
+network entry is needed.
 
 **Data policy**
 
@@ -125,6 +128,8 @@ platform RPC key.
 
 **Contract binding** (`src/contract.ts`): address from `VITE_KASIH_ADDRESS` with the current
 Arc Testnet deployment as default; inline ABI kept in sync with the Solidity surface.
+`bun run dev:local` writes a fresh address plus `VITE_ARC_RPC_URL` to `.env.localdev` after
+deploying, and Vite runs with `--mode localdev` so those values are only applied locally.
 
 **Generated modules** (`onchain-facts.ts`, `onchain-money.ts`, `onchain-wait.ts`,
 `tracing.ts`, `console-capture.ts`) come from Arc Studio. They exist to prevent three
