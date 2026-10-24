@@ -25,7 +25,8 @@ The contract **never holds funds at rest** — its USDC balance is always zero.
 | `delegatecall` | None |
 | `selfdestruct` | None |
 | `tx.origin` | None |
-| Platform fee | None |
+| Platform fee | Flat + proportional per donation, forwarded to `treasury` in the same transaction |
+| Fee caps | Immutable: `MAX_FEE_BPS = 500`, `MAX_FLAT_FEE = 50_000` (0.05 USDC) |
 | Rescue function | None (by design — contract never holds funds) |
 | EIP-2612 / EIP-3009 | Not used (see rationale below) |
 
@@ -42,17 +43,21 @@ The contract **never holds funds at rest** — its USDC balance is always zero.
 
 | Actor | Capabilities | Cannot |
 |---|---|---|
-| **Owner** | Pause/unpause, `setMaxDonation` | Move/freeze/redirect funds, change payout addresses, delete records |
+| **Owner** | Pause/unpause, `setMaxDonation`, `setFee` and `setTreasury` **within immutable caps** | Move/freeze/redirect donations and payouts, change payout addresses, raise the fee above `MAX_FEE_BPS`/`MAX_FLAT_FEE`, set the contract or the token as treasury, delete records |
 | **Creator** | Register username, set payout address and minimum, update both | Claim another creator's username; change another creator's settings |
 | **Donor** | Call `donate()` (requires prior USDC approval) | Donate below effectiveMin or above maxDonation |
 | **Anyone** | Read all public state (username availability, creator info, min/max) | — |
 
 ### Key invariants
 
-1. **Contract USDC balance is always zero.** `donate()` transfers from `msg.sender` directly to `creator.payoutAddress` — never through `address(this)`. Verified by fuzz invariant test.
-2. **Usernames are immutable once registered.** No transfer, rename, or delete.
-3. **One username per wallet.** `walletToUsernameHash[msg.sender] != bytes32(0)` check enforces this.
-4. **Payout address can always be changed** even when paused, so creators are never locked out of redirecting funds.
+1. **Contract USDC balance is always zero.** `donate()` performs two `safeTransferFrom` calls from `msg.sender`: `amount - fee` to `creator.payoutAddress` and `fee` to `treasury`. Neither leg touches `address(this)`. Verified by fuzz invariant test.
+2. **Gross = net + fee, always.** The two transfers sum to the gross amount the donor approved; the donor's allowance is fully consumed and no value is created or destroyed.
+3. **Fee is hard-capped at deploy time.** The owner may change `feeBps` and `flatFee` only up to immutable `MAX_FEE_BPS` (5%) and `MAX_FLAT_FEE` (0.05 USDC). `_feeFor` reverts with `FeeExceedsAmount` rather than ever swallowing a donation.
+4. **Treasury is never the contract.** `treasury` must be non-zero and distinct from both the USDC token and the contract, at construction and on every update.
+5. **Usernames are immutable once registered.** No transfer, rename, or delete.
+6. **One username per wallet.** `walletToUsernameHash[msg.sender] != bytes32(0)` check enforces this.
+7. **Payout address can always be changed** even when paused, so creators are never locked out of redirecting funds.
+8. **Minimum donation is gross.** `minDonation` (and the global floor) are checked against the gross amount before the fee is deducted, so the numbers a donor sees are the numbers that apply.
 
 ---
 
@@ -85,7 +90,7 @@ Covered by `test_Pause_*` and `test_Unpause_*` tests.
 
 ### Donation limits
 
-- `MIN_DONATION_FLOOR` = 0.10 USDC — immutable constant.
+- `MIN_DONATION_FLOOR` = 0.50 USDC — immutable constant.
 - `maxDonation` — owner-set, must be ≥ floor. **Risk control only, not AML.** Compliance is the operator's responsibility.
 - `effectiveMin = min(creator.minDonation, maxDonation)` — when owner lowers `maxDonation` below a creator's personal min, donations are bounded by `maxDonation` on both sides.
 - All boundary conditions covered by fuzz test `testFuzz_donateSucceedsIffInRange`.
@@ -135,16 +140,20 @@ All 102 detectors ran against the contract (13 contracts including OpenZeppelin 
 
 ## Test Coverage
 
-**102 Foundry tests, all passing.** `arc-forge coverage --report summary` for
-`KasihCengkring.sol`: **100% lines (130/130), 98.67% statements (148/150), 93.75% branches
-(30/32), 100% functions (20/20)**. The two uncovered statements/branches are the unreachable
-`!creator.registered` defensive checks in `updatePayoutAddress` and `updateMinDonation` (a
-registered wallet can never map to an unregistered creator).
+**125 Foundry tests, all passing.** `forge coverage --report summary` for
+`KasihCengkring.sol`: **100% lines (160/160), 98.44% statements (189/192), 92.50% branches
+(37/40), 100% functions (24/24)**. The three uncovered statements/branches are the
+unreachable `!creator.registered` defensive checks in `updatePayoutAddress` and
+`updateMinDonation` (a registered wallet can never map to an unregistered creator) plus the
+`FeeExceedsAmount` guard, which the deploy-time caps and the 0.50 USDC floor make
+unreachable.
 
 | Area | Tests |
 |---|---|
 | Registration edge cases | 20 tests (invalid chars, lengths, reserved, taken, paused, zero address, USDC address, contract address) |
-| Donation happy path + balance accounting | Balance delta verified on donor and creator for every happy-path test; exact allowance fully consumed |
+| Donation happy path + balance accounting | Balance delta verified on donor, creator **and treasury** for every happy-path test; exact gross allowance fully consumed; conservation asserted |
+| Platform fee | Formula + truncation (`feeFor`), fee lands in treasury, zero-fee config sends everything to the payout, event carries the fee, contract balance stays zero |
+| Fee governance | `setFee`/`setTreasury` happy paths + events; reverts above `MAX_FEE_BPS`/`MAX_FLAT_FEE`; zero/token/contract treasury rejected; non-owner rejected |
 | Min/max/floor boundaries | Exact-boundary tests + fuzz `testFuzz_donateSucceedsIffInRange` (256 runs) |
 | effectiveMin behavior | `maxDonation` lowered below creator min — boundary tested both ways |
 | Paused state | All paused-blocked functions + updatePayoutAddress works while paused |
@@ -155,7 +164,7 @@ registered wallet can never map to an unregistered creator).
 | Two-step ownership | Transfer does not change owner; stranger cannot accept; new owner must accept |
 | New views | `tryGetCreator` (valid/unregistered/invalid), `getUsernameByHash` (known/unknown) |
 | Event field values | DonationReceived, CreatorRegistered, PayoutAddressUpdated, MinDonationUpdated, MaxDonationUpdated all verified |
-| Invariants | Contract USDC balance always zero; max ≥ floor; registered payout/min remain valid |
+| Invariants | Contract USDC balance always zero; max ≥ floor; registered payout/min remain valid; fee within caps; treasury non-zero and distinct |
 
 ---
 
@@ -185,7 +194,9 @@ registered wallet can never map to an unregistered creator).
 - **maxDonation is a risk control, not an AML solution.** The operator is responsible for compliance with applicable laws. `maxDonation` can slow high-volume actors but does not enforce identity or jurisdiction checks.
 - **Payout address is not verified.** Creators can set any non-zero address other than the USDC token or the contract itself, including a contract address (e.g. a multisig or splitter). If they set an address they do not control, donations are permanently unrecoverable.
 - **Stray tokens are unrecoverable.** There is no rescue function by design; anyone who transfers USDC directly to the contract loses it. Do not send funds to the contract address.
-- **`maxDonation` can be lowered to the floor.** The owner can cap all donations at 0.10 USDC. Funds are never at risk, but the product can be made uneconomic.
+- **`maxDonation` can be lowered to the floor.** The owner can cap all donations at 0.50 USDC. Funds are never at risk, but the product can be made uneconomic.
+- **The fee is deducted from the creator's proceeds.** A creator receives `gross - (flatFee + feeBps)`. The donor is never charged extra, so the platform's revenue comes entirely out of the amount the creator would otherwise have received. The fee is shown in the donation form before signing.
+- **The owner can raise the fee up to the immutable caps** (5% + 0.05 USDC) and can rotate the treasury at any time. Both actions emit events, and neither can touch existing balances or payout addresses. Creators have no on-chain way to opt out or object except by not using the platform.
 - **Username squatting.** Usernames are first-come, first-served on-chain. There is no dispute resolution, rename, transfer, or recovery for a lost creator key.
 - **No refunds.** Donations are irreversible once `donate()` is confirmed.
 - **Not externally audited.** A formal third-party audit is strongly recommended before mainnet deployment with significant volume.

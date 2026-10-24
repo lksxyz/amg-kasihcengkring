@@ -13,6 +13,7 @@ import AppDashboard from './pages/AppDashboard';
 import HistoryPage from './pages/HistoryPage';
 import SettingsPage from './pages/SettingsPage';
 import CreatorPage from './pages/CreatorPage';
+import OverlayPage from './pages/OverlayPage';
 
 export default function App() {
   return (
@@ -25,6 +26,9 @@ export default function App() {
         <Route path="/app" element={<AppDashboard />} />
         <Route path="/app/history" element={<HistoryPage />} />
         <Route path="/app/setting" element={<SettingsPage />} />
+
+        <Route path="/overlay" element={<OverlayPage />} />
+        <Route path="/overlay/:username" element={<OverlayPage />} />
 
         {/* Public creator profile — must be last to avoid shadowing /app/* */}
         <Route path="/:username" element={<CreatorPage />} />

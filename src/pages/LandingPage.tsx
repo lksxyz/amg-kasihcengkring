@@ -24,6 +24,22 @@ export default function LandingPage() {
     functionName: 'maxDonation',
     chainId: ARC_CHAIN_ID,
   });
+  const { data: feeBps } = useReadContract({
+    address: KASIH_ADDRESS,
+    abi: KASIH_ABI,
+    functionName: 'feeBps',
+    chainId: ARC_CHAIN_ID,
+  });
+  const { data: flatFee } = useReadContract({
+    address: KASIH_ADDRESS,
+    abi: KASIH_ABI,
+    functionName: 'flatFee',
+    chainId: ARC_CHAIN_ID,
+  });
+  const feeLabel =
+    feeBps !== undefined && flatFee !== undefined
+      ? `${formatUsdc(flatFee)} USDC + ${(Number(feeBps) / 100).toFixed(2)}%`
+      : null;
 
   const [faqOpen, setFaqOpen] = useState<number | null>(null);
 
@@ -46,7 +62,9 @@ export default function LandingPage() {
     },
     {
       q: 'Does KasihCengkring take a fee?',
-      a: 'No. The contract has no fee logic. 100% of every donation goes to the creator.',
+      a: feeLabel
+        ? `Yes — ${feeLabel} per donation, deducted from the amount before it reaches the creator. Supporters are never charged extra, and the contract still never holds funds: the fee is forwarded to the platform treasury in the same transaction.`
+        : 'The fee is read live from the contract. It is deducted from each donation before it reaches the creator, and forwarded to the platform treasury in the same transaction.',
     },
     {
       q: 'Do supporters need an account?',
@@ -84,8 +102,8 @@ export default function LandingPage() {
             className="mt-6 max-w-xl text-pretty text-base sm:text-lg"
             style={{ color: 'var(--muted)' }}
           >
-            Send USDC on Arc straight to the people you back. No platform fee, no supporter
-            account, no payout wait.
+            Send USDC on Arc straight to the people you back. No supporter account, no payout
+            wait, no custody.
           </p>
 
           <div className="mt-8 flex w-full flex-col items-stretch justify-center gap-3 sm:w-auto sm:flex-row sm:items-center">
@@ -101,7 +119,7 @@ export default function LandingPage() {
           </div>
 
           <p className="mt-6 text-xs" style={{ color: 'var(--subtle)' }}>
-            Non-custodial · 0% platform fee · Settles in under a second
+            Non-custodial · {feeLabel ?? 'flat + %'} fee · Settles in under a second
           </p>
 
           {!isDeployed && (

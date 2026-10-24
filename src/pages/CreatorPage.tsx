@@ -11,7 +11,7 @@ import { ExternalLink, UserPlus } from 'lucide-react';
 import Layout from '../components/Layout';
 import DonationForm from '../components/DonationForm';
 import { Skeleton, SkeletonText } from '../components/Skeleton';
-import { KASIH_ADDRESS, KASIH_ABI } from '../contract';
+import { KASIH_ADDRESS, KASIH_ABI, MIN_DONATION_FLOOR_FALLBACK } from '../contract';
 import { validateUsername } from '../lib/utils';
 
 const ARC_CHAIN_ID = arcTestnet.id;
@@ -84,7 +84,8 @@ export default function CreatorPage() {
   }, [username]);
 
   const isRegistered = safeCreator ? safeCreator[3] : legacyCreator?.[2] === true;
-  const minDonation: bigint = (safeCreator ? safeCreator[2] : legacyCreator?.[1]) ?? 100_000n;
+  const minDonation: bigint =
+    (safeCreator ? safeCreator[2] : legacyCreator?.[1]) ?? MIN_DONATION_FLOOR_FALLBACK;
   const payoutAddress: string = (safeCreator ? safeCreator[1] : legacyCreator?.[0]) ?? '';
   const maxDon: bigint = maxDonation ?? 1_000_000_000n;
 

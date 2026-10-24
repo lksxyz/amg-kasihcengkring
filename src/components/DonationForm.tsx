@@ -52,6 +52,24 @@ export default function DonationForm({ username, minDonation, maxDonation, onSuc
   const amountTooHigh = parsedAmount !== null && parsedAmount > maxDonation;
   const amountValid = parsedAmount !== null && !amountTooLow && !amountTooHigh;
 
+  const { data: feeBps } = useReadContract({
+    address: KASIH_ADDRESS,
+    abi: KASIH_ABI,
+    functionName: 'feeBps',
+    chainId: ARC_CHAIN_ID,
+  });
+  const { data: flatFee } = useReadContract({
+    address: KASIH_ADDRESS,
+    abi: KASIH_ABI,
+    functionName: 'flatFee',
+    chainId: ARC_CHAIN_ID,
+  });
+  const fee =
+    parsedAmount !== null && feeBps !== undefined && flatFee !== undefined
+      ? flatFee + (parsedAmount * BigInt(feeBps)) / 10_000n
+      : null;
+  const netAmount = parsedAmount !== null && fee !== null ? parsedAmount - fee : null;
+
   // Approve write
   const { writeContract: writeApprove, isPending: isApproveWalletPending } = useWriteContract();
   const { isLoading: isApproveConfirming, isSuccess: isApproveSuccess } = useWaitForTransactionReceipt({ hash: approveTxHash });
@@ -169,6 +187,23 @@ export default function DonationForm({ username, minDonation, maxDonation, onSuc
     }
 
     try {
+      if (publicClient) {
+        try {
+          const liveAllowance = await publicClient.readContract({
+            address: USDC_ADDRESS,
+            abi: erc20Abi,
+            functionName: 'allowance',
+            args: [address, KASIH_ADDRESS],
+          });
+          if (liveAllowance < parsedAmount) {
+            void refetchAllowance();
+            await handleApprove();
+            return;
+          }
+        } catch {
+        }
+      }
+
       writeDonate(
         {
           address: KASIH_ADDRESS,
@@ -189,9 +224,7 @@ export default function DonationForm({ username, minDonation, maxDonation, onSuc
             setStep('error');
             setErrorMsg(decoded);
             toast.error(`Donation failed: ${decoded}`, { id: FLOW_TOAST_ID });
-            if (decoded.includes('donation limit')) {
-              void refetchAllowance();
-            }
+            void refetchAllowance();
           },
         }
       );
@@ -201,7 +234,7 @@ export default function DonationForm({ username, minDonation, maxDonation, onSuc
       setErrorMsg(decoded);
       toast.error(`Donation failed: ${decoded}`, { id: FLOW_TOAST_ID });
     }
-  }, [parsedAmount, username, donorName, message, writeDonate, refetchAllowance, address, walletRpcMatchesApp, connector?.name]);
+  }, [parsedAmount, username, donorName, message, writeDonate, refetchAllowance, address, walletRpcMatchesApp, connector?.name, publicClient, handleApprove]);
 
   // MetaMask sometimes queues a request without opening its popup. Do not leave
   // the button spinning forever: surface an actionable error after a timeout.
@@ -236,9 +269,10 @@ export default function DonationForm({ username, minDonation, maxDonation, onSuc
   useEffect(() => {
     if (!isDonateSuccess || step !== 'donate-pending') return;
     setStep('done');
+    void refetchAllowance();
     toast.success('Donation sent.', { id: FLOW_TOAST_ID });
     onSuccess?.();
-  }, [isDonateSuccess, step, onSuccess]);
+  }, [isDonateSuccess, step, refetchAllowance, onSuccess]);
 
   const isLoading =
     isApproveWalletPending || isApproveConfirming || isDonateWalletPending || isDonateConfirming ||
@@ -305,7 +339,7 @@ export default function DonationForm({ username, minDonation, maxDonation, onSuc
           Send USDC
         </h2>
         <p className="mt-1 text-sm" style={{ color: 'var(--muted)' }}>
-          Goes directly to @{username}. No platform fee.
+          Goes straight to @{username}'s wallet. No account needed.
         </p>
       </div>
 
@@ -414,7 +448,7 @@ export default function DonationForm({ username, minDonation, maxDonation, onSuc
       </div>
 
       {/* Preview */}
-      {amountValid && (
+      {amountValid && netAmount !== null && fee !== null && (
         <div className="card-muted space-y-1.5 p-4 text-sm" aria-live="polite">
           <div className="flex justify-between gap-3">
             <span style={{ color: 'var(--muted)' }}>You send</span>
@@ -423,17 +457,20 @@ export default function DonationForm({ username, minDonation, maxDonation, onSuc
             </span>
           </div>
           <div className="flex justify-between gap-3">
-            <span style={{ color: 'var(--muted)' }}>Creator receives</span>
-            <span className="font-bold tabular-nums" style={{ color: 'var(--success)' }}>
-              {formatUsdc(parsedAmount)} USDC
-            </span>
-          </div>
-          <div className="flex justify-between gap-3">
             <span style={{ color: 'var(--muted)' }}>Platform fee</span>
-            <span className="font-bold" style={{ color: 'var(--success)' }}>
-              0 USDC
+            <span className="font-bold tabular-nums" style={{ color: 'var(--muted)' }}>
+              −{formatUsdc(fee)} USDC
             </span>
           </div>
+          <div className="flex justify-between gap-3 border-t pt-1.5" style={{ borderColor: 'var(--field-border)' }}>
+            <span style={{ color: 'var(--muted)' }}>@{username} receives</span>
+            <span className="font-bold tabular-nums" style={{ color: 'var(--success)' }}>
+              {formatUsdc(netAmount)} USDC
+            </span>
+          </div>
+          <p className="pt-1 text-xs" style={{ color: 'var(--subtle)' }}>
+            The fee is deducted from your donation, not added on top. You pay exactly what you enter.
+          </p>
         </div>
       )}
 

@@ -1,8 +1,8 @@
 # KasihCengkring
 
 Non-custodial creator donation platform on **Arc**. Supporters send USDC straight to a
-creator's payout address — the contract never holds funds, takes no platform fee, and
-donors need no account.
+creator's payout address. The contract never holds funds and donors need no account; the
+only platform revenue is a small fee forwarded to the treasury in the same transaction.
 
 > **Status:** Arc Testnet, unaudited. Use small amounts.
 > See [SECURITY.md](SECURITY.md) for the threat model and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
@@ -16,32 +16,43 @@ donors need no account.
   They set their own minimum donation; the owner sets a global cap.
 - **Donors** open `/<username>`, approve USDC once, then call `donate()` with an optional
   name and message. Funds move donor → payout address in the same transaction.
+- **Platform fee** is `flatFee + feeBps` of every gross donation (default 0.01 USDC + 1%),
+  borne by the creator and forwarded to `treasury` in the same transaction. The donor pays
+  exactly the amount they type; the contract's balance remains zero.
 - **History** and public profiles read from chain state plus an optional Supabase mirror.
   With no Supabase configured, the app still works — chain reads and event-derived UI are
   the source of truth; profile/history panels simply stay empty.
 - **Pause** stops new registrations and donations but never blocks `updatePayoutAddress`:
   creators can always redirect where their money goes.
+- **Overlay** at `/overlay` (all creators) or `/overlay/<username>` shows each confirmed
+  donation as an animated card — donor name, message, and amount — plus a notification sound
+  for OBS or any browser source. It streams `DonationReceived` logs over a WebSocket
+  (`eth_subscribe`) and falls back to HTTP polling if the socket fails, so it needs no backend
+  and no wallet. The route is public; the data it renders is on-chain public anyway.
 
 ## Deployed contract
+
+**Not deployed to Arc Testnet yet.** The app ships with no default address: set
+`VITE_KASIH_ADDRESS` to point it at a deployment. Until then, the UI reports the app as not
+deployed and `bun run dev:local` is the way to run the full flow against a local Arc node.
 
 | | |
 |---|---|
 | Network | Arc Testnet (chain ID `5042002`) |
-| Contract | [`0xe9ed1145c0ec41220a1dc6b76bee0b860d078678`](https://explorer.testnet.arc.io/address/0xe9ed1145c0ec41220a1dc6b76bee0b860d078678) |
-| Deploy tx | `0x22b996fdac9180b8c25ad84e8313f2875e283b80c4cdf7eca8e89427a607ba12` |
-| Deployer | `0xf324b4c7421b21f1ac9926eaf613d192497a0f97` |
 | USDC (ERC-20 view) | `0x3600000000000000000000000000000000000000`, 6 decimals |
-| `MIN_DONATION_FLOOR` | 0.10 USDC (`100000`) |
+| `MIN_DONATION_FLOOR` | 0.50 USDC (`500000`) |
 | `maxDonation` | 500 USDC (`500000000`) |
+| Platform fee | 0.01 USDC + 1%, capped at 0.05 USDC + 5% |
+| Treasury | set at deploy; owner-rotatable, never the contract |
 
-Full constructor args and deployment provenance live in
-[`contracts/contract-metadata/KasihCengkring.json`](contracts/contract-metadata/KasihCengkring.json).
+Constructor: `(usdc, maxDonation, treasury, feeBps, flatFee, owner)`. `bun run dev:local`
+deploys a local instance with `treasury = owner = deployer`, `feeBps = 100`, `flatFee = 10000`.
 
 ## Architecture at a glance
 
 ```
 Donor wallet ──approve + donate()──► KasihCengkring ──safeTransferFrom──► Creator payout
-      │                                   │
+      │                                   ├────────safeTransferFrom──────► Treasury (fee)
       │                             Arc Testnet RPC
       │                                   │
       └──── React SPA (Netlify CDN) ◄─────┘        optional read mirror
@@ -153,6 +164,7 @@ UI runs on chain reads alone.
 | Variable | Required | Purpose |
 |---|---|---|
 | `VITE_ARC_RPC_URL` | no | RPC this build talks to (local / testnet / mainnet). Unset = viem default. |
+| `VITE_ARC_WSS_URL` | no | WebSocket RPC for the overlay. Unset = derived from `VITE_ARC_RPC_URL` or viem default. |
 | `VITE_ARC_CHAIN_NAME` | no | Display name used when the header button adds the network. |
 | `VITE_ARC_EXPLORER_URL` | no | Explorer URL used when the header button adds the network. |
 | `VITE_KASIH_ADDRESS` | no | Contract address. Defaults to the deployed Arc Testnet instance. |

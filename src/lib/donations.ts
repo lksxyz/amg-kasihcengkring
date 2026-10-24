@@ -9,7 +9,7 @@ import { parseAbiItem, type Address, type Hex, type PublicClient } from 'viem';
 import { KASIH_ADDRESS } from '../contract';
 
 export const DONATION_RECEIVED = parseAbiItem(
-  'event DonationReceived(bytes32 indexed usernameHash, string username, address indexed donor, address indexed creator, string donorName, string message, uint256 amount, uint256 timestamp)',
+  'event DonationReceived(bytes32 indexed usernameHash, string username, address indexed donor, address indexed creator, string donorName, string message, uint256 amount, uint256 fee, uint256 timestamp)',
 );
 
 export const ZERO_HASH: Hex = `0x${'0'.repeat(64)}`;
@@ -20,6 +20,8 @@ export interface DonationRow {
   donor_name: string;
   message: string;
   amount_raw: string;
+  fee_raw: string;
+  net_raw: string;
   tx_hash: Hex;
   block_timestamp: number;
   hidden: boolean;
@@ -33,6 +35,7 @@ interface DonationLog {
     donorName?: string;
     message?: string;
     amount?: bigint;
+    fee?: bigint;
     timestamp?: bigint;
   };
 }
@@ -56,15 +59,21 @@ export async function getChainDonations(
   });
 
   return (logs as DonationLog[])
-    .map((log) => ({
-      id: `${log.transactionHash}-${log.logIndex}`,
-      donor_address: log.args.donor ?? '',
-      donor_name: log.args.donorName ?? '',
-      message: log.args.message ?? '',
-      amount_raw: (log.args.amount ?? 0n).toString(),
-      tx_hash: log.transactionHash,
-      block_timestamp: Number(log.args.timestamp ?? 0n),
-      hidden: false,
-    }))
+    .map((log) => {
+      const gross = log.args.amount ?? 0n;
+      const fee = log.args.fee ?? 0n;
+      return {
+        id: `${log.transactionHash}-${log.logIndex}`,
+        donor_address: log.args.donor ?? '',
+        donor_name: log.args.donorName ?? '',
+        message: log.args.message ?? '',
+        amount_raw: gross.toString(),
+        fee_raw: fee.toString(),
+        net_raw: (gross - fee).toString(),
+        tx_hash: log.transactionHash,
+        block_timestamp: Number(log.args.timestamp ?? 0n),
+        hidden: false,
+      };
+    })
     .sort((a, b) => b.block_timestamp - a.block_timestamp);
 }

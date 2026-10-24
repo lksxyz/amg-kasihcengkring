@@ -22,7 +22,7 @@ import Layout from '../components/Layout';
 import { Skeleton, SkeletonCard } from '../components/Skeleton';
 import { PageHeader } from '../components/PageHeader';
 import { StatePanel, EmptyState } from '../components/States';
-import { KASIH_ADDRESS, KASIH_ABI } from '../contract';
+import { KASIH_ADDRESS, KASIH_ABI, MIN_DONATION_FLOOR_FALLBACK } from '../contract';
 import { buildTxExplorerUrl } from '../onchain-facts';
 import { formatUsdc, formatAddress, formatDate, validateUsername, parseUsdcInput, decodeRevert } from '../lib/utils';
 import { useOnchainUsername } from '../lib/useOnchainUsername';
@@ -36,6 +36,8 @@ interface Donation {
   donor_name: string;
   message: string;
   amount_raw: string;
+  fee_raw?: string;
+  net_raw?: string;
   tx_hash: string;
   block_timestamp: number;
 }
@@ -49,7 +51,7 @@ interface Stats {
 
 function statsFromChain(rows: DonationRow[]): Stats {
   const now = Math.floor(Date.now() / 1000);
-  const sum = (list: DonationRow[]) => list.reduce((acc, row) => acc + BigInt(row.amount_raw), 0n);
+  const sum = (list: DonationRow[]) => list.reduce((acc, row) => acc + BigInt(row.net_raw), 0n);
   const format = (value: bigint) => (Number(value) / 1_000_000).toFixed(2);
   return {
     total: format(sum(rows)),
@@ -261,7 +263,7 @@ export default function AppDashboard() {
                 {[
                   'Your username is permanent. Choose carefully.',
                   'Change your payout address and minimum donation anytime.',
-                  'No platform fee. Supporters only pay Arc gas.',
+                  'A small platform fee is deducted from each donation. Supporters only pay Arc gas.',
                 ].map((item) => (
                   <li key={item} className="flex items-start gap-2.5 text-sm" style={{ color: 'var(--ink-2)' }}>
                     <CheckCircle2
@@ -465,6 +467,9 @@ function StatCell({
 }
 
 function DonationRow({ d }: { d: Donation }) {
+  const gross = BigInt(d.amount_raw);
+  const fee = d.fee_raw ? BigInt(d.fee_raw) : 0n;
+  const net = d.net_raw ? BigInt(d.net_raw) : gross - fee;
   return (
     <li className="border-b p-5 last:border-b-0" style={{ borderColor: 'var(--border)' }}>
       <div className="flex items-start justify-between gap-3">
@@ -500,7 +505,12 @@ function DonationRow({ d }: { d: Donation }) {
           className="shrink-0 whitespace-nowrap text-right text-sm font-bold tabular-nums"
           style={{ color: 'var(--success)' }}
         >
-          +{formatUsdc(BigInt(d.amount_raw))} USDC
+          +{formatUsdc(net)} USDC
+          {fee > 0n && (
+            <span className="block text-xs font-normal tabular-nums" style={{ color: 'var(--subtle)' }}>
+              fee {formatUsdc(fee)}
+            </span>
+          )}
         </p>
       </div>
     </li>
@@ -521,6 +531,14 @@ function RegisterForm({ onRegistered }: { onRegistered: () => void }) {
 
   const { writeContract } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash });
+
+  const { data: minFloor } = useReadContract({
+    address: KASIH_ADDRESS,
+    abi: KASIH_ABI,
+    functionName: 'MIN_DONATION_FLOOR',
+    chainId: ARC_CHAIN_ID,
+  });
+  const floor = minFloor ?? MIN_DONATION_FLOOR_FALLBACK;
 
   // Live availability check from contract
   const { refetch: checkAvailability } = useReadContract({
@@ -581,7 +599,7 @@ function RegisterForm({ onRegistered }: { onRegistered: () => void }) {
   }, [usernameInput]);
 
   const parsedMin = parseUsdcInput(minInput);
-  const minValid = parsedMin !== null && parsedMin >= 100_000n;
+  const minValid = parsedMin !== null && parsedMin >= floor;
 
   const handleRegister = () => {
     if (!parsedMin || !payoutInput || isSubmitting) return;
@@ -701,11 +719,11 @@ function RegisterForm({ onRegistered }: { onRegistered: () => void }) {
           aria-invalid={!minValid && minInput !== ''}
         />
         <p id="min-help" className="hint">
-          The smallest amount a supporter can send. Minimum 0.10 USDC.
+          The smallest amount a supporter can send. Minimum {formatUsdc(floor)} USDC.
         </p>
         {!minValid && minInput && (
           <p className="text-xs" style={{ color: 'var(--danger)' }} role="alert">
-            Enter an amount of at least 0.10 USDC.
+            Enter an amount of at least {formatUsdc(floor)} USDC.
           </p>
         )}
       </div>

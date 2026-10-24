@@ -13,10 +13,13 @@ import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IER
 /// @title KasihCengkring
 /// @notice Non-custodial USDC creator donation platform on Arc.
 ///         Funds flow directly from donor to creator payout address — the contract never holds funds at rest.
+///         A platform fee (flat + proportional) is charged on every donation and forwarded to the
+///         treasury in the same transaction; it is borne by the creator, never added on top for the donor.
 ///         Donations use the two-step ERC-20 approve + donate() flow; an EIP-3009 variant was
 ///         evaluated and removed (see the note above the owner section).
 /// @dev    OpenZeppelin 5.1.0; Paris EVM; solc 0.8.28 exact.
-///         No proxy, no upgradeability, no delegatecall, no selfdestruct, no tx.origin, no platform fee.
+///         No proxy, no upgradeability, no delegatecall, no selfdestruct, no tx.origin.
+///         Fee parameters are owner-settable but hard-capped by immutable constants.
 contract KasihCengkring is Ownable2Step, Pausable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -24,12 +27,23 @@ contract KasihCengkring is Ownable2Step, Pausable, ReentrancyGuard {
     //  Constants
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// @notice Minimum donation floor: 0.10 USDC (6-decimal ERC-20 view).
-    uint256 public constant MIN_DONATION_FLOOR = 100_000;
+    /// @notice Minimum donation floor: 0.50 USDC (6-decimal ERC-20 view).
+    ///         Sized so the flat fee component never consumes a double-digit share of
+    ///         the smallest allowed donation.
+    uint256 public constant MIN_DONATION_FLOOR = 500_000;
+
+    /// @notice Hard ceiling on the proportional fee: 500 bps = 5.00%.
+    uint16 public constant MAX_FEE_BPS = 500;
+
+    /// @notice Hard ceiling on the flat fee: 0.05 USDC (6-decimal ERC-20 view).
+    uint256 public constant MAX_FLAT_FEE = 50_000;
+
     uint40 public constant MAX_USERNAME_LENGTH = 20;
     uint40 public constant MIN_USERNAME_LENGTH = 3;
     uint40 public constant MAX_DONOR_NAME_LENGTH = 40;
     uint40 public constant MAX_MESSAGE_LENGTH = 200;
+
+    uint16 private constant BPS_DENOMINATOR = 10_000;
 
     // ─────────────────────────────────────────────────────────────────────────
     //  State
@@ -37,6 +51,13 @@ contract KasihCengkring is Ownable2Step, Pausable, ReentrancyGuard {
 
     IERC20 public immutable usdc;
     uint256 public maxDonation;
+
+    /// @notice Address that receives platform fees. Never the contract itself.
+    address public treasury;
+    /// @notice Proportional fee component, in basis points of the gross donation.
+    uint16 public feeBps;
+    /// @notice Flat fee component, in 6-decimal USDC units, charged per donation.
+    uint256 public flatFee;
 
     struct Creator {
         address payoutAddress;
@@ -66,6 +87,10 @@ contract KasihCengkring is Ownable2Step, Pausable, ReentrancyGuard {
     error MinBelowFloor(uint256 min, uint256 floor);
     error MaxBelowFloor(uint256 max, uint256 floor);
     error InvalidPayoutAddress();
+    error InvalidTreasury();
+    error FeeAboveCap(uint16 bps, uint16 maxBps);
+    error FlatFeeAboveCap(uint256 flat, uint256 maxFlat);
+    error FeeExceedsAmount(uint256 fee, uint256 amount);
     error InvalidToken();
     error InvalidTokenDecimals(uint8 decimals);
     error RenounceDisabled();
@@ -87,6 +112,8 @@ contract KasihCengkring is Ownable2Step, Pausable, ReentrancyGuard {
     );
     event MinDonationUpdated(bytes32 indexed usernameHash, uint256 oldMin, uint256 newMin);
     event MaxDonationUpdated(uint256 oldMax, uint256 newMax);
+    event TreasuryUpdated(address indexed oldTreasury, address indexed newTreasury);
+    event FeeUpdated(uint16 oldFeeBps, uint16 newFeeBps, uint256 oldFlatFee, uint256 newFlatFee);
     event DonationReceived(
         bytes32 indexed usernameHash,
         string username,
@@ -95,6 +122,7 @@ contract KasihCengkring is Ownable2Step, Pausable, ReentrancyGuard {
         string donorName,
         string message,
         uint256 amount,
+        uint256 fee,
         uint256 timestamp
     );
 
@@ -102,7 +130,14 @@ contract KasihCengkring is Ownable2Step, Pausable, ReentrancyGuard {
     //  Constructor
     // ─────────────────────────────────────────────────────────────────────────
 
-    constructor(address usdc_, uint256 maxDonation_, address initialOwner) Ownable(initialOwner) {
+    constructor(
+        address usdc_,
+        uint256 maxDonation_,
+        address treasury_,
+        uint16 feeBps_,
+        uint256 flatFee_,
+        address initialOwner
+    ) Ownable(initialOwner) {
         if (usdc_ == address(0)) revert ZeroAddress();
         if (usdc_.code.length == 0) revert InvalidToken();
         // MIN_DONATION_FLOOR is expressed in 6-decimal units; reject a misconfigured token.
@@ -110,8 +145,18 @@ contract KasihCengkring is Ownable2Step, Pausable, ReentrancyGuard {
         if (tokenDecimals != 6) revert InvalidTokenDecimals(tokenDecimals);
         if (maxDonation_ < MIN_DONATION_FLOOR) revert MaxBelowFloor(maxDonation_, MIN_DONATION_FLOOR);
 
+        // A fee without a destination would strand value; the contract can never be its own treasury.
+        if (treasury_ == address(0) || treasury_ == usdc_ || treasury_ == address(this)) {
+            revert InvalidTreasury();
+        }
+        if (feeBps_ > MAX_FEE_BPS) revert FeeAboveCap(feeBps_, MAX_FEE_BPS);
+        if (flatFee_ > MAX_FLAT_FEE) revert FlatFeeAboveCap(flatFee_, MAX_FLAT_FEE);
+
         usdc = IERC20(usdc_);
         maxDonation = maxDonation_;
+        treasury = treasury_;
+        feeBps = feeBps_;
+        flatFee = flatFee_;
 
         _reserveUsername("admin");
         _reserveUsername("support");
@@ -231,6 +276,8 @@ contract KasihCengkring is Ownable2Step, Pausable, ReentrancyGuard {
         address payoutAddress = creator.payoutAddress;
         string memory resolvedUsername = usernameByHash[usernameHash];
 
+        uint256 fee = _feeFor(amount);
+
         // --- Effects ---
         emit DonationReceived(
             usernameHash,
@@ -240,11 +287,18 @@ contract KasihCengkring is Ownable2Step, Pausable, ReentrancyGuard {
             donorName,
             message,
             amount,
+            fee,
             block.timestamp
         );
 
         // --- Interactions ---
-        IERC20(address(usdc)).safeTransferFrom(msg.sender, payoutAddress, amount);
+        // Both legs are paid by the donor from the single gross approval:
+        // net goes to the creator, fee goes to the treasury. Nothing rests here.
+        IERC20 token = IERC20(address(usdc));
+        token.safeTransferFrom(msg.sender, payoutAddress, amount - fee);
+        if (fee > 0) {
+            token.safeTransferFrom(msg.sender, treasury, fee);
+        }
     }
 
     // NOTE: donateWithAuthorization (EIP-3009) was removed.
@@ -268,6 +322,32 @@ contract KasihCengkring is Ownable2Step, Pausable, ReentrancyGuard {
         emit MaxDonationUpdated(oldMax, newMax);
     }
 
+    /// @notice Set the treasury that receives platform fees. Owner only.
+    function setTreasury(address newTreasury) external nonReentrant onlyOwner {
+        if (newTreasury == address(0) || newTreasury == address(usdc) || newTreasury == address(this)) {
+            revert InvalidTreasury();
+        }
+
+        address oldTreasury = treasury;
+        treasury = newTreasury;
+
+        emit TreasuryUpdated(oldTreasury, newTreasury);
+    }
+
+    /// @notice Set both fee components. Owner only, hard-capped by {MAX_FEE_BPS} and {MAX_FLAT_FEE}.
+    ///         The Owner can never take more than the deploy-time ceilings.
+    function setFee(uint16 newFeeBps, uint256 newFlatFee) external nonReentrant onlyOwner {
+        if (newFeeBps > MAX_FEE_BPS) revert FeeAboveCap(newFeeBps, MAX_FEE_BPS);
+        if (newFlatFee > MAX_FLAT_FEE) revert FlatFeeAboveCap(newFlatFee, MAX_FLAT_FEE);
+
+        uint16 oldBps = feeBps;
+        uint256 oldFlat = flatFee;
+        feeBps = newFeeBps;
+        flatFee = newFlatFee;
+
+        emit FeeUpdated(oldBps, newFeeBps, oldFlat, newFlatFee);
+    }
+
     /// @notice Pause the contract. Blocks register, donate, and updateMinDonation.
     ///         Does NOT block updatePayoutAddress.
     function pause() external nonReentrant onlyOwner {
@@ -288,6 +368,12 @@ contract KasihCengkring is Ownable2Step, Pausable, ReentrancyGuard {
     // ─────────────────────────────────────────────────────────────────────────
     //  External: Views
     // ─────────────────────────────────────────────────────────────────────────
+
+    /// @notice Platform fee charged on a gross donation of `amount`.
+    ///         Used by the UI to show the gross/fee/net breakdown before signing.
+    function feeFor(uint256 amount) external view returns (uint256) {
+        return _feeFor(amount);
+    }
 
     function getCreator(string calldata username)
         external
@@ -391,6 +477,13 @@ contract KasihCengkring is Ownable2Step, Pausable, ReentrancyGuard {
 
         uint256 effectiveMin = creatorMinDonation < maxDonation ? creatorMinDonation : maxDonation;
         if (amount < effectiveMin) revert AmountBelowMin(amount, effectiveMin);
+    }
+
+    /// @dev Fee for a gross donation: flat component + proportional component, rounded down.
+    ///      Reverts rather than letting a fee swallow the whole donation.
+    function _feeFor(uint256 amount) internal view returns (uint256 fee) {
+        fee = flatFee + (amount * feeBps) / BPS_DENOMINATOR;
+        if (fee >= amount) revert FeeExceedsAmount(fee, amount);
     }
 
     /// @dev Mark a username as reserved at construction.

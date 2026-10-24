@@ -11,10 +11,12 @@ import {MockERC20} from "../test-helpers/MockERC20.sol";
 //  Constants used throughout tests
 // ─────────────────────────────────────────────────────────────────────────────
 
-uint256 constant MIN_FLOOR      = 100_000;   // KasihCengkring.MIN_DONATION_FLOOR
+uint256 constant MIN_FLOOR      = 500_000;   // KasihCengkring.MIN_DONATION_FLOOR (0.50 USDC)
 uint256 constant DEFAULT_MAX    = 10_000e6;  // 10 000 USDC — global max for most tests
 uint256 constant CREATOR_MIN    = 500_000;   // 0.50 USDC — per-creator min for most tests
 uint256 constant DONOR_BALANCE  = 100_000e6; // 100 000 USDC for donors
+uint16  constant FEE_BPS        = 100;       // 1.00% proportional fee
+uint256 constant FLAT_FEE       = 10_000;    // 0.01 USDC flat fee
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  KasihCengkringTest — main unit-test contract
@@ -34,8 +36,19 @@ contract KasihCengkringTest is Test {
     address internal payout2  = makeAddr("payout2");
     address internal donor    = makeAddr("donor");
     address internal stranger = makeAddr("stranger");
+    address internal treasury = makeAddr("treasury");
 
     // ── helpers ──────────────────────────────────────────────────────────────
+
+    /// @dev Platform fee the contract should charge on a gross donation.
+    function _fee(uint256 amount) internal pure returns (uint256) {
+        return FLAT_FEE + (amount * FEE_BPS) / 10_000;
+    }
+
+    /// @dev Deploy a contract with the standard test parameters.
+    function _deploy(uint256 maxDon) internal returns (KasihCengkring) {
+        return new KasihCengkring(address(usdc), maxDon, treasury, FEE_BPS, FLAT_FEE, owner);
+    }
 
     /// @dev Register creator1 with username "alice" and payout1.
     function _registerAlice() internal {
@@ -63,7 +76,7 @@ contract KasihCengkringTest is Test {
 
         // Deploy contract-under-test
         vm.prank(owner);
-        board = new KasihCengkring(address(usdc), DEFAULT_MAX, owner);
+        board = _deploy(DEFAULT_MAX);
     }
 
     // =========================================================================
@@ -79,24 +92,25 @@ contract KasihCengkringTest is Test {
 
     function test_Constructor_RejectsZeroUSDC() public {
         vm.expectRevert(KasihCengkring.ZeroAddress.selector);
-        new KasihCengkring(address(0), DEFAULT_MAX, owner);
+        new KasihCengkring(address(0), DEFAULT_MAX, treasury, FEE_BPS, FLAT_FEE, owner);
     }
 
     function test_Constructor_RejectsMaxBelowFloor() public {
         vm.expectRevert(
             abi.encodeWithSelector(KasihCengkring.MaxBelowFloor.selector, MIN_FLOOR - 1, MIN_FLOOR)
         );
-        new KasihCengkring(address(usdc), MIN_FLOOR - 1, owner);
+        new KasihCengkring(address(usdc), MIN_FLOOR - 1, treasury, FEE_BPS, FLAT_FEE, owner);
     }
 
     function test_Constructor_AcceptsMaxEqFloor() public {
-        KasihCengkring c = new KasihCengkring(address(usdc), MIN_FLOOR, owner);
+        KasihCengkring c =
+            new KasihCengkring(address(usdc), MIN_FLOOR, treasury, FEE_BPS, FLAT_FEE, owner);
         assertEq(c.maxDonation(), MIN_FLOOR);
     }
 
     function test_Constructor_RejectsNonContractUSDC() public {
         vm.expectRevert(KasihCengkring.InvalidToken.selector);
-        new KasihCengkring(makeAddr("notAToken"), DEFAULT_MAX, owner);
+        new KasihCengkring(makeAddr("notAToken"), DEFAULT_MAX, treasury, FEE_BPS, FLAT_FEE, owner);
     }
 
     function test_Constructor_RejectsWrongDecimals() public {
@@ -104,7 +118,7 @@ contract KasihCengkringTest is Test {
         vm.expectRevert(
             abi.encodeWithSelector(KasihCengkring.InvalidTokenDecimals.selector, uint8(18))
         );
-        new KasihCengkring(address(eighteen), DEFAULT_MAX, owner);
+        new KasihCengkring(address(eighteen), DEFAULT_MAX, treasury, FEE_BPS, FLAT_FEE, owner);
     }
 
     function test_Constructor_RejectsZeroDecimals() public {
@@ -112,7 +126,37 @@ contract KasihCengkringTest is Test {
         vm.expectRevert(
             abi.encodeWithSelector(KasihCengkring.InvalidTokenDecimals.selector, uint8(0))
         );
-        new KasihCengkring(address(zeroDecimals), DEFAULT_MAX, owner);
+        new KasihCengkring(address(zeroDecimals), DEFAULT_MAX, treasury, FEE_BPS, FLAT_FEE, owner);
+    }
+
+    function test_Constructor_SetsFeeAndTreasury() public view {
+        assertEq(board.treasury(), treasury);
+        assertEq(board.feeBps(), FEE_BPS);
+        assertEq(board.flatFee(), FLAT_FEE);
+        assertEq(board.MAX_FEE_BPS(), 500);
+        assertEq(board.MAX_FLAT_FEE(), 50_000);
+    }
+
+    function test_Constructor_RejectsZeroTreasury() public {
+        vm.expectRevert(KasihCengkring.InvalidTreasury.selector);
+        new KasihCengkring(address(usdc), DEFAULT_MAX, address(0), FEE_BPS, FLAT_FEE, owner);
+    }
+
+    function test_Constructor_RejectsTreasuryIsToken() public {
+        vm.expectRevert(KasihCengkring.InvalidTreasury.selector);
+        new KasihCengkring(address(usdc), DEFAULT_MAX, address(usdc), FEE_BPS, FLAT_FEE, owner);
+    }
+
+    function test_Constructor_RejectsFeeAboveCap() public {
+        vm.expectRevert(abi.encodeWithSelector(KasihCengkring.FeeAboveCap.selector, 501, 500));
+        new KasihCengkring(address(usdc), DEFAULT_MAX, treasury, 501, FLAT_FEE, owner);
+    }
+
+    function test_Constructor_RejectsFlatFeeAboveCap() public {
+        vm.expectRevert(
+            abi.encodeWithSelector(KasihCengkring.FlatFeeAboveCap.selector, 50_001, 50_000)
+        );
+        new KasihCengkring(address(usdc), DEFAULT_MAX, treasury, FEE_BPS, 50_001, owner);
     }
 
     // =========================================================================
@@ -392,19 +436,21 @@ contract KasihCengkringTest is Test {
     function test_Donate_HappyPath_BalanceAccounting() public {
         _registerAlice();
         uint256 amount = 1_000_000; // 1 USDC
+        uint256 fee    = _fee(amount);
         _fundAndApprove(amount);
 
-        uint256 donorBefore  = usdc.balanceOf(donor);
-        uint256 payoutBefore = usdc.balanceOf(payout1);
-        uint256 boardBefore  = usdc.balanceOf(address(board));
+        uint256 donorBefore    = usdc.balanceOf(donor);
+        uint256 payoutBefore   = usdc.balanceOf(payout1);
+        uint256 treasuryBefore = usdc.balanceOf(treasury);
 
         vm.prank(donor);
         board.donate("alice", "Bob", "Hello!", amount);
 
-        assertEq(usdc.balanceOf(donor),          donorBefore  - amount, "donor balance");
-        assertEq(usdc.balanceOf(payout1),        payoutBefore + amount, "payout balance");
-        assertEq(usdc.balanceOf(address(board)), boardBefore,           "contract stays 0");
-        assertEq(usdc.balanceOf(address(board)), 0,                     "contract is zero");
+        assertEq(usdc.balanceOf(donor),    donorBefore - amount,          "donor pays gross only");
+        assertEq(usdc.balanceOf(payout1),  payoutBefore + amount - fee,   "payout gets net");
+        assertEq(usdc.balanceOf(treasury), treasuryBefore + fee,          "treasury gets fee");
+        assertEq(usdc.balanceOf(address(board)), 0,                       "contract is zero");
+        assertEq(usdc.balanceOf(payout1) + usdc.balanceOf(treasury), donorBefore, "conservation");
     }
 
     function test_Donate_HappyPath_EmitsDonationReceived() public {
@@ -424,6 +470,7 @@ contract KasihCengkringTest is Test {
             "Bob",
             "Hello!",
             amount,
+            _fee(amount),
             ts
         );
 
@@ -448,7 +495,7 @@ contract KasihCengkringTest is Test {
 
         vm.prank(donor);
         board.donate("alice", "Donor", "msg", CREATOR_MIN); // == effectiveMin
-        assertEq(usdc.balanceOf(payout1), CREATOR_MIN);
+        assertEq(usdc.balanceOf(payout1), CREATOR_MIN - _fee(CREATOR_MIN));
     }
 
     function test_Donate_ExactlyMaxDonation() public {
@@ -457,7 +504,7 @@ contract KasihCengkringTest is Test {
 
         vm.prank(donor);
         board.donate("alice", "Donor", "msg", DEFAULT_MAX);
-        assertEq(usdc.balanceOf(payout1), DEFAULT_MAX);
+        assertEq(usdc.balanceOf(payout1), DEFAULT_MAX - _fee(DEFAULT_MAX));
     }
 
     function test_Donate_EmptyDonorNameAndMessage() public {
@@ -467,7 +514,7 @@ contract KasihCengkringTest is Test {
 
         vm.prank(donor);
         board.donate("alice", "", "", amount); // empty strings allowed
-        assertEq(usdc.balanceOf(payout1), amount);
+        assertEq(usdc.balanceOf(payout1), amount - _fee(amount));
     }
 
     function test_Donate_DonorName40Chars() public {
@@ -479,7 +526,7 @@ contract KasihCengkringTest is Test {
 
         vm.prank(donor);
         board.donate("alice", name40, "msg", amount);
-        assertEq(usdc.balanceOf(payout1), amount);
+        assertEq(usdc.balanceOf(payout1), amount - _fee(amount));
     }
 
     function test_Donate_Message200Chars() public {
@@ -500,7 +547,166 @@ contract KasihCengkringTest is Test {
 
         vm.prank(donor);
         board.donate("alice", "Donor", msg200, amount);
-        assertEq(usdc.balanceOf(payout1), amount);
+        assertEq(usdc.balanceOf(payout1), amount - _fee(amount));
+    }
+
+    // =========================================================================
+    //  10b · Platform fee
+    // =========================================================================
+
+    function test_FeeFor_Formula() public view {
+        assertEq(board.feeFor(500_000),   15_000);   // 0.50 → 0.01 + 0.005
+        assertEq(board.feeFor(1_000_000), 20_000);   // 1.00 → 0.01 + 0.01
+        assertEq(board.feeFor(10_000_000), 110_000); // 10.0 → 0.01 + 0.10
+        assertEq(board.feeFor(500_000_000), 5_010_000); // 500 → 0.01 + 5.00
+    }
+
+    function test_FeeFor_RoundsDown() public view {
+        // 12_345 * 1% = 123.45 → 123, truncated in the creator's favour.
+        assertEq(board.feeFor(12_345), 10_123);
+    }
+
+    function test_Donate_EventCarriesFee() public {
+        _registerAlice();
+        uint256 amount = 1_000_000;
+        _fundAndApprove(amount);
+
+        vm.expectEmit(true, true, true, true, address(board));
+        emit KasihCengkring.DonationReceived(
+            keccak256(bytes("alice")),
+            "alice",
+            donor,
+            payout1,
+            "Bob",
+            "Hello!",
+            amount,
+            _fee(amount),
+            block.timestamp
+        );
+
+        vm.prank(donor);
+        board.donate("alice", "Bob", "Hello!", amount);
+    }
+
+    function test_Donate_FeeNeverReachesTheContract() public {
+        _registerAlice();
+        uint256 amount = 1_000_000;
+        _fundAndApprove(amount);
+
+        vm.prank(donor);
+        board.donate("alice", "Donor", "msg", amount);
+
+        assertEq(usdc.balanceOf(address(board)), 0, "contract never holds the fee");
+        assertEq(usdc.balanceOf(treasury), _fee(amount), "fee lands in treasury");
+    }
+
+    function test_Donate_ZeroFeeSendsEverythingToPayout() public {
+        KasihCengkring free = new KasihCengkring(
+            address(usdc), DEFAULT_MAX, treasury, 0, 0, owner
+        );
+        vm.prank(creator1);
+        free.register("alice", payout1, CREATOR_MIN);
+
+        _fundAndApprove(CREATOR_MIN);
+        vm.prank(donor);
+        usdc.approve(address(free), CREATOR_MIN);
+        vm.prank(donor);
+        free.donate("alice", "Donor", "msg", CREATOR_MIN);
+
+        assertEq(usdc.balanceOf(payout1), CREATOR_MIN, "no fee, full amount");
+        assertEq(usdc.balanceOf(treasury), 0, "treasury untouched");
+        assertEq(usdc.balanceOf(address(free)), 0);
+    }
+
+    function test_SetFee_HappyPath_EmitsEvent() public {
+        vm.expectEmit(true, true, true, true, address(board));
+        emit KasihCengkring.FeeUpdated(FEE_BPS, 250, FLAT_FEE, 20_000);
+
+        vm.prank(owner);
+        board.setFee(250, 20_000);
+
+        assertEq(board.feeBps(), 250);
+        assertEq(board.flatFee(), 20_000);
+    }
+
+    function test_SetFee_AtCapsSucceeds() public {
+        uint16 maxBps = board.MAX_FEE_BPS();
+        uint256 maxFlat = board.MAX_FLAT_FEE();
+
+        vm.prank(owner);
+        board.setFee(maxBps, maxFlat);
+
+        assertEq(board.feeBps(), 500);
+        assertEq(board.flatFee(), 50_000);
+    }
+
+    function test_SetFee_Revert_BpsAboveCap() public {
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSelector(KasihCengkring.FeeAboveCap.selector, 501, 500));
+        board.setFee(501, FLAT_FEE);
+    }
+
+    function test_SetFee_Revert_FlatAboveCap() public {
+        vm.prank(owner);
+        vm.expectRevert(
+            abi.encodeWithSelector(KasihCengkring.FlatFeeAboveCap.selector, 50_001, 50_000)
+        );
+        board.setFee(FEE_BPS, 50_001);
+    }
+
+    function test_SetFee_Revert_NotOwner() public {
+        vm.prank(stranger);
+        vm.expectRevert(
+            abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, stranger)
+        );
+        board.setFee(0, 0);
+    }
+
+    function test_SetTreasury_HappyPath_EmitsEvent() public {
+        address newTreasury = makeAddr("newTreasury");
+
+        vm.expectEmit(true, true, true, true, address(board));
+        emit KasihCengkring.TreasuryUpdated(treasury, newTreasury);
+
+        vm.prank(owner);
+        board.setTreasury(newTreasury);
+
+        assertEq(board.treasury(), newTreasury);
+
+        // Fees follow the new treasury immediately.
+        _registerAlice();
+        uint256 amount = 1_000_000;
+        _fundAndApprove(amount);
+        vm.prank(donor);
+        board.donate("alice", "Donor", "msg", amount);
+        assertEq(usdc.balanceOf(newTreasury), _fee(amount));
+        assertEq(usdc.balanceOf(treasury), 0);
+    }
+
+    function test_SetTreasury_Revert_Zero() public {
+        vm.prank(owner);
+        vm.expectRevert(KasihCengkring.InvalidTreasury.selector);
+        board.setTreasury(address(0));
+    }
+
+    function test_SetTreasury_Revert_IsToken() public {
+        vm.prank(owner);
+        vm.expectRevert(KasihCengkring.InvalidTreasury.selector);
+        board.setTreasury(address(usdc));
+    }
+
+    function test_SetTreasury_Revert_IsContract() public {
+        vm.prank(owner);
+        vm.expectRevert(KasihCengkring.InvalidTreasury.selector);
+        board.setTreasury(address(board));
+    }
+
+    function test_SetTreasury_Revert_NotOwner() public {
+        vm.prank(stranger);
+        vm.expectRevert(
+            abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, stranger)
+        );
+        board.setTreasury(makeAddr("x"));
     }
 
     // =========================================================================
@@ -607,7 +813,7 @@ contract KasihCengkringTest is Test {
         _fundAndApprove(newMax);
         vm.prank(donor);
         board.donate("alice", "Donor", "msg", newMax);
-        assertEq(usdc.balanceOf(payout1), newMax);
+        assertEq(usdc.balanceOf(payout1), newMax - _fee(newMax));
     }
 
     function test_Donate_Revert_BelowEffectiveMinWhenMaxLowered() public {
@@ -717,7 +923,7 @@ contract KasihCengkringTest is Test {
         _fundAndApprove(CREATOR_MIN);
         vm.prank(donor);
         board.donate("alice", "Donor", "msg", CREATOR_MIN);
-        assertEq(usdc.balanceOf(payout1), CREATOR_MIN);
+        assertEq(usdc.balanceOf(payout1), CREATOR_MIN - _fee(CREATOR_MIN));
     }
 
     function test_RenounceOwnership_Reverts() public {
@@ -864,8 +1070,8 @@ contract KasihCengkringTest is Test {
         vm.prank(donor);
         board.donate("alice", "Donor", "msg", amount);
 
-        assertEq(usdc.balanceOf(payout1), 0,      "old payout should be 0");
-        assertEq(usdc.balanceOf(newPay),  amount,  "new payout receives funds");
+        assertEq(usdc.balanceOf(payout1), 0,                    "old payout should be 0");
+        assertEq(usdc.balanceOf(newPay),  amount - _fee(amount), "new payout receives net");
     }
 
     // =========================================================================
@@ -998,7 +1204,7 @@ contract KasihCengkringTest is Test {
 
         // The guard must have reverted the inner donation, so only the outer one lands.
         assertFalse(usdc.attackSucceeded(), "inner donate should revert under the guard");
-        assertEq(usdc.balanceOf(payout1), CREATOR_MIN, "exactly one donation should land");
+        assertEq(usdc.balanceOf(payout1), CREATOR_MIN - _fee(CREATOR_MIN), "exactly one donation should land");
         assertEq(usdc.balanceOf(address(board)), 0, "contract stays non-custodial");
     }
 
@@ -1016,7 +1222,7 @@ contract KasihCengkringTest is Test {
         creatorMin = bound(creatorMin, MIN_FLOOR, type(uint128).max);
 
         // ── deploy a fresh contract with fuzz maxDon ─────────────────────────
-        KasihCengkring c = new KasihCengkring(address(usdc), maxDon, owner);
+        KasihCengkring c = _deploy(maxDon);
 
         // ── register creator ─────────────────────────────────────────────────
         vm.prank(creator1);
@@ -1037,11 +1243,11 @@ contract KasihCengkringTest is Test {
         if (amount >= effectiveMin && amount <= maxDon) {
             vm.prank(donor);
             c.donate("fuzzcreator", "D", "m", amount);
-            assertEq(usdc.balanceOf(payout1), amount, "payout should receive amount");
+            assertEq(usdc.balanceOf(payout1), amount - _fee(amount), "payout should receive net");
             // Reset payout balance for reuse (drain it back to donor to keep state clean)
             // We use the mock's transfer to return funds so next run is clean
             vm.prank(payout1);
-            usdc.transfer(donor, amount);
+            usdc.transfer(donor, amount - _fee(amount));
         } else if (amount < effectiveMin) {
             vm.prank(donor);
             vm.expectRevert(
@@ -1075,7 +1281,7 @@ contract KasihCengkringHandler is Test {
     bool internal creatorRegistered;
     bool internal paused;
 
-    uint256 constant MIN_FLOOR   = 100_000;
+    uint256 constant MIN_FLOOR   = 500_000;
     uint256 constant CREATOR_MIN = 500_000;
 
     constructor(KasihCengkring _board, MockERC20 _usdc, address _owner) {
@@ -1143,6 +1349,20 @@ contract KasihCengkringHandler is Test {
         try board.setMaxDonation(newMax) {} catch {}
     }
 
+    function setFee(uint16 newBps, uint256 newFlat) external {
+        vm.prank(owner);
+        try board.setFee(newBps, newFlat) {} catch {}
+    }
+
+    function setTreasury(address newTreasury) external {
+        if (newTreasury == address(0)) return;
+        if (newTreasury == address(usdc)) return;
+        if (newTreasury == address(board)) return;
+
+        vm.prank(owner);
+        try board.setTreasury(newTreasury) {} catch {}
+    }
+
     function doPause() external {
         if (paused) return;
         vm.prank(owner);
@@ -1170,13 +1390,16 @@ contract KasihCengkringInvariantTest is Test {
     KasihCengkringHandler  internal handler;
 
     address internal owner = makeAddr("inv_owner");
+    address internal treasury = makeAddr("inv_treasury");
 
     function setUp() public {
         usdc    = new MockERC20("Mock USDC", "mUSDC", 6);
 
         vm.prank(owner);
-        board   = new KasihCengkring(address(usdc), 10_000e6, owner);
+        board   = new KasihCengkring(address(usdc), 10_000e6, treasury, 100, 10_000, owner);
         handler = new KasihCengkringHandler(board, usdc, owner);
+        handler.setTreasury(treasury);
+        handler.setFee(100, 10_000);
 
         // Only let the fuzzer call through the handler
         targetContract(address(handler));
@@ -1211,5 +1434,28 @@ contract KasihCengkringInvariantTest is Test {
     function invariant_PausedStateConsistent() public view {
         // Just read paused() — if it panics, forge will catch it.
         board.paused();
+    }
+
+    /// @notice Fee parameters can never drift above the immutable deploy-time caps.
+    function invariant_FeeWithinCaps() public view {
+        assertLe(board.feeBps(), board.MAX_FEE_BPS(), "feeBps above cap");
+        assertLe(board.flatFee(), board.MAX_FLAT_FEE(), "flatFee above cap");
+    }
+
+    /// @notice The treasury is always a real, distinct address.
+    function invariant_TreasuryIsValid() public view {
+        address t = board.treasury();
+        assertTrue(t != address(0), "treasury must be non-zero");
+        assertTrue(t != address(usdc), "treasury must not be the token");
+        assertTrue(t != address(board), "treasury must not be the contract");
+    }
+
+    /// @notice Every donation either reaches the creator or the treasury — nothing evaporates.
+    function invariant_NoValueLeavesTheSystem() public view {
+        assertEq(
+            usdc.balanceOf(address(board)),
+            0,
+            "fee routing must not leave a balance behind"
+        );
     }
 }

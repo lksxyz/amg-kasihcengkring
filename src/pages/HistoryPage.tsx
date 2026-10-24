@@ -24,9 +24,23 @@ interface Donation {
   donor_name: string;
   message: string;
   amount_raw: string;
+  fee_raw?: string;
+  net_raw?: string;
   tx_hash: string;
   block_timestamp: number;
   hidden: boolean;
+}
+
+function grossOf(d: Donation): bigint {
+  return BigInt(d.amount_raw);
+}
+
+function feeOf(d: Donation): bigint {
+  return d.fee_raw ? BigInt(d.fee_raw) : 0n;
+}
+
+function netOf(d: Donation): bigint {
+  return d.net_raw ? BigInt(d.net_raw) : grossOf(d) - feeOf(d);
 }
 
 export default function HistoryPage() {
@@ -132,13 +146,15 @@ export default function HistoryPage() {
   useEffect(() => { void fetchDonations(); }, [fetchDonations]);
 
   const exportCsv = () => {
-    const header = 'Date,Supporter,Address,Amount USDC,Message,TX Hash';
+    const header = 'Date,Supporter,Address,Gross USDC,Fee USDC,Net USDC,Message,TX Hash';
     const rows = donations.map((d) =>
       [
         formatDate(d.block_timestamp),
         `"${d.donor_name || 'Anonymous'}"`,
         d.donor_address,
-        (Number(d.amount_raw) / 1_000_000).toFixed(6),
+        (Number(grossOf(d)) / 1_000_000).toFixed(6),
+        (Number(feeOf(d)) / 1_000_000).toFixed(6),
+        (Number(netOf(d)) / 1_000_000).toFixed(6),
         `"${(d.message ?? '').replace(/"/g, '""')}"`,
         d.tx_hash,
       ].join(',')
@@ -153,7 +169,7 @@ export default function HistoryPage() {
     URL.revokeObjectURL(url);
   };
 
-  const totalAmount = donations.reduce((sum, d) => sum + BigInt(d.amount_raw), 0n);
+  const totalNet = donations.reduce((sum, d) => sum + netOf(d), 0n);
   const totalPages = Math.ceil(total / PAGE_SIZE);
   const hasFilters = search.trim() !== '' || dateFrom !== '' || dateTo !== '';
 
@@ -296,7 +312,7 @@ export default function HistoryPage() {
           {!loading && donations.length > 0 && (
             <p className="text-xs" style={{ color: 'var(--muted)' }}>
               Showing {donations.length} of {total} donations · Page {page + 1} of {totalPages || 1} ·
-              Total on this page: <strong style={{ color: 'var(--ink)' }}>{formatUsdc(totalAmount)} USDC</strong>
+              Total received on this page: <strong style={{ color: 'var(--ink)' }}>{formatUsdc(totalNet)} USDC</strong>
             </p>
           )}
 
@@ -387,7 +403,15 @@ export default function HistoryPage() {
                           className="whitespace-nowrap px-4 py-3 font-bold tabular-nums"
                           style={{ color: 'var(--success)' }}
                         >
-                          +{formatUsdc(BigInt(d.amount_raw))} USDC
+                          +{formatUsdc(netOf(d))} USDC
+                          {feeOf(d) > 0n && (
+                            <span
+                              className="block text-xs font-normal tabular-nums"
+                              style={{ color: 'var(--subtle)' }}
+                            >
+                              {formatUsdc(grossOf(d))} − fee {formatUsdc(feeOf(d))}
+                            </span>
+                          )}
                         </td>
                         <td className="max-w-xs truncate px-4 py-3" style={{ color: 'var(--ink-2)' }}>
                           {d.message || '—'}

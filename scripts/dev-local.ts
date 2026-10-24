@@ -44,6 +44,8 @@ const FUND_ADDRESSES = (process.env.FUND_ADDRESSES ?? process.env.FUND_ADDRESS ?
 const FUND_NATIVE = process.env.FUND_NATIVE ?? '25';
 const FUND_USDC = process.env.FUND_USDC ?? '2500';
 const MAX_DONATION = 500_000_000n;
+const FEE_BPS = 100n; // 1% proportional platform fee
+const FLAT_FEE = 10_000n; // 0.01 USDC flat platform fee
 const LOG_DIR = path.join(ROOT, '.dev-local');
 const STATE_PATH = path.join(LOG_DIR, 'state.json');
 const PERSIST_STATE = process.env.ARC_STATE !== 'off';
@@ -210,6 +212,13 @@ async function main(): Promise<void> {
   if (!gasPrice) fail(`${RPC_URL} did not answer eth_gasPrice.`);
   console.log(dim(`  eth_gasPrice OK (${gasPrice})\n`));
 
+  const devBalance = BigInt((await rpc<string>('eth_getBalance', [DEV_ADDRESS, 'latest'])) ?? '0x0');
+  if (devBalance < 1_000n * 10n ** 18n) {
+    const refill = 100_000n * 10n ** 18n;
+    await rpc('anvil_setBalance', [DEV_ADDRESS, `0x${refill.toString(16)}`]);
+    console.log(dim(`  dev account refilled to ${formatUnits(refill, 18)} USDC\n`));
+  }
+
   console.log('Deploying KasihCengkring…');
   const forgeOut = execFileSync(
     requireBinary('forge'),
@@ -224,7 +233,10 @@ async function main(): Promise<void> {
       '--constructor-args',
       USDC,
       MAX_DONATION.toString(),
-      DEV_ADDRESS,
+      DEV_ADDRESS, // treasury
+      FEE_BPS.toString(),
+      FLAT_FEE.toString(),
+      DEV_ADDRESS, // owner
     ],
     { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
   );
@@ -272,6 +284,9 @@ async function main(): Promise<void> {
 
   const owner = cast(['call', contract, 'owner()(address)', '--rpc-url', RPC_URL]);
   const maxDonation = cast(['call', contract, 'maxDonation()(uint256)', '--rpc-url', RPC_URL]).split(' ')[0];
+  const feeBps = cast(['call', contract, 'feeBps()(uint16)', '--rpc-url', RPC_URL]).split(' ')[0];
+  const flatFee = cast(['call', contract, 'flatFee()(uint256)', '--rpc-url', RPC_URL]).split(' ')[0];
+  const treasury = cast(['call', contract, 'treasury()(address)', '--rpc-url', RPC_URL]);
 
   console.log(`
 ${bold('Wallet setup (browser)')}
@@ -293,12 +308,16 @@ ${bold('Contract')}
   USDC (predeploy): ${USDC}
   owner          : ${owner}
   maxDonation    : ${formatUnits(BigInt(maxDonation), 6)} USDC
+  platform fee   : ${formatUnits(BigInt(flatFee), 6)} USDC + ${Number(feeBps) / 100}%
+  treasury       : ${treasury}
 
 ${bold('Env')}
   ${path.relative(ROOT, ENV_PATH)} written (local RPC + contract address).
 
 ${bold('Frontend')}  http://localhost:${DEV_PORT}
 ${dim('Ctrl-C stops Vite and the anvil node started by this script.')}
+${dim('Restarting leaves your wallet nonce ahead of the chain if txs were pending.')}
+${dim('Wallet stuck on a skipped nonce? Run ARC_STATE=off bun run dev:local, then clear pending txs in the wallet.')}
 `);
 
   // `bun run` auto-loads .env into process.env, and Vite gives process.env

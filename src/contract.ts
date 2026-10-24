@@ -1,12 +1,12 @@
 /**
  * KasihCengkring contract configuration.
- * The deployed Arc Testnet address is the default; override with VITE_KASIH_ADDRESS
- * when deploying a new instance. ABI mirrors contracts/KasihCengkring.sol.
  */
 
 export const KASIH_ADDRESS = (
-  import.meta.env.VITE_KASIH_ADDRESS || '0xe9ed1145c0ec41220a1dc6b76bee0b860d078678'
+  import.meta.env.VITE_KASIH_ADDRESS || '0x0000000000000000000000000000000000000000'
 ) as `0x${string}`;
+
+export const MIN_DONATION_FLOOR_FALLBACK = 500_000n;
 
 export const KASIH_ABI = [
   // Constants / views
@@ -20,6 +20,48 @@ export const KASIH_ABI = [
   {
     type: 'function',
     name: 'maxDonation',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ type: 'uint256' }],
+  },
+  {
+    type: 'function',
+    name: 'treasury',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ type: 'address' }],
+  },
+  {
+    type: 'function',
+    name: 'feeBps',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ type: 'uint16' }],
+  },
+  {
+    type: 'function',
+    name: 'flatFee',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ type: 'uint256' }],
+  },
+  {
+    type: 'function',
+    name: 'feeFor',
+    stateMutability: 'view',
+    inputs: [{ name: 'amount', type: 'uint256' }],
+    outputs: [{ type: 'uint256' }],
+  },
+  {
+    type: 'function',
+    name: 'MAX_FEE_BPS',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ type: 'uint16' }],
+  },
+  {
+    type: 'function',
+    name: 'MAX_FLAT_FEE',
     stateMutability: 'view',
     inputs: [],
     outputs: [{ type: 'uint256' }],
@@ -125,6 +167,7 @@ export const KASIH_ABI = [
       { name: 'donorName', type: 'string', indexed: false },
       { name: 'message', type: 'string', indexed: false },
       { name: 'amount', type: 'uint256', indexed: false },
+      { name: 'fee', type: 'uint256', indexed: false },
       { name: 'timestamp', type: 'uint256', indexed: false },
     ],
   },
@@ -148,5 +191,9 @@ export const KASIH_ABI = [
   { type: 'error', name: 'NotRegistered', inputs: [] },
   { type: 'error', name: 'InvalidToken', inputs: [] },
   { type: 'error', name: 'InvalidTokenDecimals', inputs: [{ name: 'decimals', type: 'uint8' }] },
+  { type: 'error', name: 'InvalidTreasury', inputs: [] },
+  { type: 'error', name: 'FeeAboveCap', inputs: [{ name: 'bps', type: 'uint16' }, { name: 'maxBps', type: 'uint16' }] },
+  { type: 'error', name: 'FlatFeeAboveCap', inputs: [{ name: 'flat', type: 'uint256' }, { name: 'maxFlat', type: 'uint256' }] },
+  { type: 'error', name: 'FeeExceedsAmount', inputs: [{ name: 'fee', type: 'uint256' }, { name: 'amount', type: 'uint256' }] },
   { type: 'error', name: 'RenounceDisabled', inputs: [] },
 ] as const;

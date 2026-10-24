@@ -112,9 +112,9 @@ Notes:
 2. Deploy via Arc Studio (`bun run deploy:self`) or the Compass path (`bun run compass:deploy`).
 3. Update `contracts/contract-metadata/KasihCengkring.json` with the new address/tx (the
    deploy script writes it).
-4. Set `VITE_KASIH_ADDRESS` in Netlify to the new address and redeploy — or update the
-   default in `src/contract.ts` and commit.
-5. Update the address tables in `README.md` and `SECURITY.md`.
+4. Set `VITE_KASIH_ADDRESS` in Netlify to the new address and redeploy — the app ships with
+   no default address, so an unset value means "not deployed".
+5. Update the deployment section in `README.md` and `AGENTS.md`.
 6. Verify in the deployed UI: contract link in the footer, creator read, donation form.
 
 A stale `VITE_KASIH_ADDRESS` is the most common post-redeploy failure: reads hit the old
@@ -138,6 +138,7 @@ contract and registration appears broken.
 | Registration says username taken | Already registered, reserved, or actually taken | Reserved list is in the contract constructor |
 | History empty | Supabase env vars absent or RLS blocks reads | Expected without the mirror; chain data still works |
 | Contract link 404 | Explorer base changed | `onchain-facts.ts` is generated; regenerate instead of patching |
+| Wallet shows "nonce #N skipped" on Arc Local | Anvil was restarted and dropped pending txs, but the wallet kept its local nonce counter | Clear the account's pending activity in the wallet, then either resend (the wallet re-reads the chain nonce) or realign the chain with `cast rpc anvil_setNonce <addr> <hex-nonce>`. For a clean slate run `ARC_STATE=off bun run dev:local` |
 
 ## Production requirements
 
@@ -145,7 +146,7 @@ contract and registration appears broken.
 - Network: Arc Testnet only today (chain ID `5042002`); there is no Arc mainnet yet.
 - Deployer and owner keys on a hardware wallet or multisig. Ownership is `Ownable2Step`.
 - Deployer funded with USDC for gas; verify source on ArcScan.
-- Update `contracts/contract-metadata/`, plus the address tables in `README.md` and `SECURITY.md`.
+- Update `contracts/contract-metadata/`, plus the deployment sections in `README.md` and `AGENTS.md`.
 - Formal audit before holding real value; the contract is explicitly unaudited.
 - Decide `maxDonation` policy and rehearse pause/unpause and ownership transfer.
 
@@ -155,7 +156,8 @@ contract and registration appears broken.
   - `VITE_KASIH_ADDRESS` — production contract address (do not ship the testnet default)
   - `VITE_ARC_RPC_URL` — production RPC (HTTPS, CORS enabled, adequate rate limits)
   - `VITE_ARC_CHAIN_NAME`, `VITE_ARC_EXPLORER_URL`
-- Optional: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`.
+- Optional: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, and `VITE_ARC_WSS_URL` (WebSocket
+  RPC for the overlay when the provider uses a different WS host or path than `VITE_ARC_RPC_URL`).
 - Custom domain + DNS + HTTPS in Netlify.
 - Run `bun run typecheck`, `bun run build`, and `forge test` before deploying.
 - Decide whether to keep the Arc Studio watermark and the generated diagnostics modules.

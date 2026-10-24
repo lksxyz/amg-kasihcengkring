@@ -5,13 +5,14 @@
 import { useState, useEffect, useId } from 'react';
 import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt, useSwitchChain } from 'wagmi';
 import { arcTestnet } from 'viem/chains';
+import { isAddress } from 'viem';
 import { ConnectKitButton } from 'connectkit';
-import { Loader2, Save, AlertCircle, CheckCircle2, LogOut, Upload, Wallet } from 'lucide-react';
+import { Loader2, Save, AlertCircle, CheckCircle2, LogOut, Upload, Wallet, TriangleAlert } from 'lucide-react';
 import { toast } from 'sonner';
 import Layout from '../components/Layout';
 import { PageHeader } from '../components/PageHeader';
 import { StatePanel } from '../components/States';
-import { KASIH_ADDRESS, KASIH_ABI } from '../contract';
+import { KASIH_ADDRESS, KASIH_ABI, MIN_DONATION_FLOOR_FALLBACK } from '../contract';
 import { formatUsdc, parseUsdcInput, decodeRevert } from '../lib/utils';
 import { useOnchainUsername } from '../lib/useOnchainUsername';
 
@@ -37,6 +38,29 @@ export default function SettingsPage() {
     functionName: 'maxDonation',
     chainId: ARC_CHAIN_ID,
   });
+  const { data: feeBps } = useReadContract({
+    address: KASIH_ADDRESS,
+    abi: KASIH_ABI,
+    functionName: 'feeBps',
+    chainId: ARC_CHAIN_ID,
+  });
+  const { data: flatFee } = useReadContract({
+    address: KASIH_ADDRESS,
+    abi: KASIH_ABI,
+    functionName: 'flatFee',
+    chainId: ARC_CHAIN_ID,
+  });
+  const { data: minFloor } = useReadContract({
+    address: KASIH_ADDRESS,
+    abi: KASIH_ABI,
+    functionName: 'MIN_DONATION_FLOOR',
+    chainId: ARC_CHAIN_ID,
+  });
+  const floor = minFloor ?? MIN_DONATION_FLOOR_FALLBACK;
+  const feeLabel =
+    feeBps !== undefined && flatFee !== undefined
+      ? `${formatUsdc(flatFee)} USDC + ${(Number(feeBps) / 100).toFixed(2)}%`
+      : null;
 
   const [username, setUsername] = useState('');
   const onchainUsername = useOnchainUsername(address);
@@ -54,7 +78,9 @@ export default function SettingsPage() {
   const [minTxHash, setMinTxHash] = useState<`0x${string}` | undefined>();
   const [payoutError, setPayoutError] = useState('');
   const [minError, setMinError] = useState('');
-  const [confirmingPayout, setConfirmingPayout] = useState(false);
+  const [payoutDialogOpen, setPayoutDialogOpen] = useState(false);
+  const [payoutConfirmText, setPayoutConfirmText] = useState('');
+  const [payoutStep, setPayoutStep] = useState<'confirm' | 'address'>('confirm');
 
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
   const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
@@ -204,16 +230,36 @@ export default function SettingsPage() {
   };
 
   const parsedMin = parseUsdcInput(minInput);
-  const minValid = parsedMin !== null && parsedMin >= 100_000n;
+  const minValid = parsedMin !== null && parsedMin >= floor;
+
+  const payoutConfirmed = effectiveUsername.length > 0 && payoutConfirmText.trim() === effectiveUsername;
+  const payoutAddressValid = isAddress(payoutInput);
+
+  const openPayoutDialog = () => {
+    setPayoutConfirmText('');
+    setPayoutInput('');
+    setPayoutError('');
+    setPayoutStep('confirm');
+    setPayoutDialogOpen(true);
+  };
 
   const handleUpdatePayout = () => {
-    if (!payoutInput) return;
+    if (!payoutInput || !payoutConfirmed || !payoutAddressValid) return;
     setPayoutError('');
     writeUpdatePayout(
       { address: KASIH_ADDRESS, abi: KASIH_ABI, functionName: 'updatePayoutAddress', args: [payoutInput as `0x${string}`], chainId: ARC_CHAIN_ID },
-      { onSuccess: (h) => { setPayoutTxHash(h); setConfirmingPayout(false); }, onError: (e) => setPayoutError(decodeRevert(e)) }
+      { onSuccess: (h) => { setPayoutTxHash(h); setPayoutDialogOpen(false); setPayoutConfirmText(''); }, onError: (e) => setPayoutError(decodeRevert(e)) }
     );
   };
+
+  useEffect(() => {
+    if (!payoutDialogOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setPayoutDialogOpen(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [payoutDialogOpen]);
 
   const handleUpdateMin = () => {
     if (!parsedMin) return;
@@ -405,92 +451,6 @@ export default function SettingsPage() {
             </section>
 
             <div className="space-y-6">
-              {/* Payout address */}
-              <section className="card space-y-4 p-5 sm:p-6" aria-labelledby="payout-heading">
-                <div>
-                  <h2 id="payout-heading" className="display text-lg font-bold" style={{ color: 'var(--ink)' }}>
-                    Payout address
-                  </h2>
-                  <p className="mt-1 text-sm" style={{ color: 'var(--muted)' }}>
-                    Donations land here in the same transaction. Changing it requires an on-chain
-                    transaction from your registered wallet.
-                  </p>
-                </div>
-
-                <div className="field">
-                  <label className="label" htmlFor="payout-address">
-                    New payout address
-                  </label>
-                  <input
-                    id="payout-address"
-                    type="text"
-                    value={payoutInput}
-                    onChange={(e) => { setPayoutInput(e.target.value); setConfirmingPayout(false); }}
-                    placeholder="0x…"
-                    className="input mono text-xs"
-                    spellCheck={false}
-                  />
-                </div>
-
-                {payoutError && (
-                  <div className="alert alert-danger" role="alert">
-                    <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-                    <p>{payoutError}</p>
-                  </div>
-                )}
-
-                {isPayoutSuccess && (
-                  <div className="alert alert-success" role="status">
-                    <CheckCircle2 className="size-5 shrink-0" aria-hidden="true" />
-                    <p className="font-bold">Payout address updated.</p>
-                  </div>
-                )}
-
-                {!confirmingPayout ? (
-                  <button
-                    type="button"
-                    onClick={() => setConfirmingPayout(true)}
-                    disabled={!payoutInput || isPayoutPending || isPayoutConfirming}
-                    className="btn btn-secondary"
-                  >
-                    Update payout address
-                  </button>
-                ) : (
-                  <div className="card-muted space-y-3 p-4">
-                    <p className="text-sm font-bold" style={{ color: 'var(--ink)' }}>
-                      Send future donations to {payoutInput.slice(0, 10)}…{payoutInput.slice(-4)}?
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={handleUpdatePayout}
-                        disabled={isPayoutPending || isPayoutConfirming}
-                        className="btn btn-danger btn-sm"
-                        aria-live="polite"
-                      >
-                        {isPayoutPending ? (
-                          <>
-                            <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-                            Confirm in wallet…
-                          </>
-                        ) : isPayoutConfirming ? (
-                          'Updating…'
-                        ) : (
-                          'Change payout address'
-                        )}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setConfirmingPayout(false)}
-                        className="btn btn-secondary btn-sm"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </section>
-
               {/* Minimum donation */}
               <section className="card space-y-4 p-5 sm:p-6" aria-labelledby="minimum-heading">
                 <div>
@@ -499,7 +459,7 @@ export default function SettingsPage() {
                   </h2>
                   <p className="mt-1 text-sm" style={{ color: 'var(--muted)' }}>
                     The smallest amount a supporter can send to your page. The contract floor is
-                    0.10 USDC.
+                    {formatUsdc(floor)} USDC.
                   </p>
                 </div>
 
@@ -523,7 +483,7 @@ export default function SettingsPage() {
                   </p>
                   {!minValid && minInput && (
                     <p className="text-xs" style={{ color: 'var(--danger)' }} role="alert">
-                      Enter an amount of at least 0.10 USDC.
+                      Enter an amount of at least {formatUsdc(floor)} USDC.
                     </p>
                   )}
                 </div>
@@ -573,7 +533,223 @@ export default function SettingsPage() {
                   Set by the contract owner. Read-only.
                 </p>
               </section>
+
+              {/* Read-only: platform fee */}
+              <section className="card-muted space-y-1 p-5" aria-labelledby="fee-heading">
+                <h2 id="fee-heading" className="display text-base font-bold" style={{ color: 'var(--ink)' }}>
+                  Platform fee
+                </h2>
+                <p className="text-2xl font-bold tabular-nums" style={{ color: 'var(--ink)' }}>
+                  {feeLabel ?? '—'}
+                </p>
+                <p className="text-xs" style={{ color: 'var(--muted)' }}>
+                  Deducted from each donation before it reaches your payout address, capped at 5% +
+                  0.05 USDC. Read-only.
+                </p>
+              </section>
             </div>
+
+            <section
+              className="card space-y-4 p-5 sm:p-6"
+              style={{ borderColor: 'var(--danger)' }}
+              aria-labelledby="payout-heading"
+            >
+              <div className="flex items-start gap-3">
+                <TriangleAlert
+                  className="mt-0.5 size-5 shrink-0"
+                  style={{ color: 'var(--danger)' }}
+                  aria-hidden="true"
+                />
+                <div>
+                  <h2
+                    id="payout-heading"
+                    className="display text-lg font-bold"
+                    style={{ color: 'var(--danger)' }}
+                  >
+                    Danger zone · payout address
+                  </h2>
+                  <p className="mt-1 text-sm" style={{ color: 'var(--muted)' }}>
+                    Every future donation is sent to your payout address in the same transaction. If
+                    you point it somewhere you do not control, those funds are gone. Only your
+                    registered wallet can change it back.
+                  </p>
+                </div>
+              </div>
+
+              {payoutError && !payoutDialogOpen && (
+                <div className="alert alert-danger" role="alert">
+                  <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+                  <p>{payoutError}</p>
+                </div>
+              )}
+
+              {isPayoutSuccess && (
+                <div className="alert alert-success" role="status">
+                  <CheckCircle2 className="size-5 shrink-0" aria-hidden="true" />
+                  <p className="font-bold">Payout address updated.</p>
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={openPayoutDialog}
+                disabled={!effectiveUsername || isPayoutPending || isPayoutConfirming}
+                className="btn btn-danger"
+              >
+                Change payout address
+              </button>
+            </section>
+
+            {payoutDialogOpen && (
+              <div
+                className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4"
+                onClick={() => setPayoutDialogOpen(false)}
+                role="presentation"
+              >
+                <div
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby="payout-dialog-title"
+                  aria-describedby="payout-dialog-desc"
+                  className="card w-full max-w-md space-y-4 p-6"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="flex items-start gap-3">
+                    <TriangleAlert
+                      className="mt-0.5 size-5 shrink-0"
+                      style={{ color: 'var(--danger)' }}
+                      aria-hidden="true"
+                    />
+                    <h2
+                      id="payout-dialog-title"
+                      className="display text-lg font-bold"
+                      style={{ color: 'var(--danger)' }}
+                    >
+                      Change payout address?
+                    </h2>
+                  </div>
+
+                  {payoutStep === 'confirm' ? (
+                    <>
+                      <p id="payout-dialog-desc" className="text-sm" style={{ color: 'var(--muted)' }}>
+                        Changing where donations land cannot be undone from this screen. To
+                        continue, type your creator username exactly as it appears on your page.
+                      </p>
+
+                      <div className="field">
+                        <label className="label" htmlFor="payout-confirm">
+                          Type{' '}
+                          <span className="mono font-bold" style={{ color: 'var(--danger)' }}>
+                            {effectiveUsername}
+                          </span>{' '}
+                          to confirm
+                        </label>
+                        <input
+                          id="payout-confirm"
+                          type="text"
+                          value={payoutConfirmText}
+                          onChange={(e) => setPayoutConfirmText(e.target.value)}
+                          className="input"
+                          placeholder={effectiveUsername}
+                          autoComplete="off"
+                          autoCapitalize="none"
+                          autoCorrect="off"
+                          spellCheck={false}
+                          autoFocus
+                          aria-invalid={payoutConfirmText.length > 0 && !payoutConfirmed}
+                        />
+                      </div>
+
+                      <div className="flex flex-wrap justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setPayoutDialogOpen(false)}
+                          className="btn btn-secondary"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPayoutStep('address')}
+                          disabled={!payoutConfirmed}
+                          className="btn btn-danger"
+                        >
+                          Continue
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <p id="payout-dialog-desc" className="text-sm" style={{ color: 'var(--muted)' }}>
+                        Enter the new payout address. Every future donation is sent there in the
+                        same transaction; only your registered wallet can change it again.
+                      </p>
+
+                      <div className="field">
+                        <label className="label" htmlFor="payout-address">
+                          New payout address
+                        </label>
+                        <input
+                          id="payout-address"
+                          type="text"
+                          value={payoutInput}
+                          onChange={(e) => setPayoutInput(e.target.value)}
+                          placeholder="0x…"
+                          className="input mono text-xs"
+                          style={{ borderColor: 'var(--danger)' }}
+                          autoComplete="off"
+                          autoCapitalize="none"
+                          autoCorrect="off"
+                          spellCheck={false}
+                          autoFocus
+                          aria-invalid={payoutInput.length > 0 && !payoutAddressValid}
+                        />
+                        <p className="hint">
+                          {payoutInput.length > 0 && !payoutAddressValid
+                            ? 'That is not a valid 0x address.'
+                            : 'Paste a full 0x address. Double-check it before confirming.'}
+                        </p>
+                      </div>
+
+                      {payoutError && (
+                        <div className="alert alert-danger" role="alert">
+                          <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+                          <p>{payoutError}</p>
+                        </div>
+                      )}
+
+                      <div className="flex flex-wrap justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setPayoutStep('confirm')}
+                          className="btn btn-secondary"
+                        >
+                          Back
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleUpdatePayout}
+                          disabled={!payoutAddressValid || isPayoutPending || isPayoutConfirming}
+                          className="btn btn-danger"
+                          aria-live="polite"
+                        >
+                          {isPayoutPending ? (
+                            <>
+                              <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                              Confirm in wallet…
+                            </>
+                          ) : isPayoutConfirming ? (
+                            'Updating…'
+                          ) : (
+                            'Change payout address'
+                          )}
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
