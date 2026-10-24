@@ -40,7 +40,26 @@ export function hashUsername(username: string): Hex {
 
 const walletCache = new Map<string, Address | null>();
 
-/** Username → registering wallet, resolved from `CreatorRegistered` logs. */
+const CHUNK = 1_800n;
+
+async function getLogsChunked(
+  client: PublicClient,
+  filter: Parameters<PublicClient['getLogs']>[0],
+  fromBlock: bigint,
+  toBlock: bigint,
+): Promise<Awaited<ReturnType<PublicClient['getLogs']>>> {
+  const results: Awaited<ReturnType<PublicClient['getLogs']>> = [];
+  for (let start = fromBlock; start <= toBlock; start += CHUNK) {
+    const end = start + CHUNK - 1n < toBlock ? start + CHUNK - 1n : toBlock;
+    // oxlint-disable-next-line typescript/no-unsafe-argument
+    const chunk = await client.getLogs({ ...filter, fromBlock: start, toBlock: end } as Parameters<PublicClient['getLogs']>[0]);
+    results.push(...chunk);
+    if (chunk.length > 0) break; // found the event — no need to scan further
+  }
+  return results;
+}
+
+/** Username → registering wallet. Tries eth_call first (new contract), falls back to chunked log scan. */
 export async function resolveCreatorWallet(
   client: PublicClient,
   username: string,
@@ -48,15 +67,42 @@ export async function resolveCreatorWallet(
   const key = username.toLowerCase();
   if (walletCache.has(key)) return walletCache.get(key) ?? null;
 
-  const logs = await client.getLogs({
-    address: KASIH_ADDRESS,
-    event: CREATOR_REGISTERED,
-    args: { usernameHash: hashUsername(key) },
-    fromBlock: 0n,
-  });
-  const wallet = logs[logs.length - 1]?.args.wallet ?? null;
-  walletCache.set(key, wallet);
-  return wallet;
+  // Fast path: getUsernameByHash available on new contract
+  try {
+    const hash = hashUsername(key);
+    const info = await client.readContract({
+      address: KASIH_ADDRESS,
+      abi: [{ name: 'getUsernameByHash', type: 'function', stateMutability: 'view', inputs: [{ name: 'usernameHash', type: 'bytes32' }], outputs: [{ name: 'username', type: 'string' }, { name: 'wallet', type: 'address' }, { name: 'payoutAddress', type: 'address' }, { name: 'minDonation', type: 'uint256' }, { name: 'registered', type: 'bool' }] }],
+      functionName: 'getUsernameByHash',
+      args: [hash],
+    }) as [string, Address, Address, bigint, boolean];
+    if (info[4]) { // registered
+      walletCache.set(key, info[1]);
+      return info[1];
+    }
+    walletCache.set(key, null);
+    return null;
+  } catch {
+    // fall through to log scan (old contract or not registered)
+  }
+
+  // Slow path: chunked log scan
+  try {
+    const head = await client.getBlockNumber();
+    const from = head > 50_000n ? head - 50_000n : 0n;
+    const logs = await getLogsChunked(
+      client,
+      { address: KASIH_ADDRESS, event: CREATOR_REGISTERED, args: { usernameHash: hashUsername(key) } },
+      from,
+      head,
+    );
+    // oxlint-disable-next-line typescript/no-unsafe-member-access, typescript/no-explicit-any
+    const wallet = ((logs[logs.length - 1] as any)?.args?.wallet as Address | undefined) ?? null;
+    walletCache.set(key, wallet);
+    return wallet;
+  } catch {
+    return null;
+  }
 }
 
 export async function fetchProfileByWallet(wallet: Address): Promise<ProfileRow | null> {

@@ -9,7 +9,7 @@
  */
 
 import { createPublicClient, fallback, http, webSocket } from 'viem';
-import { arcTestnet } from 'viem/chains';
+import { arcChain } from '../config';
 
 const httpUrl = (import.meta.env.VITE_ARC_RPC_URL || import.meta.env.VITE_LOCAL_RPC_URL) as
   | string
@@ -17,10 +17,12 @@ const httpUrl = (import.meta.env.VITE_ARC_RPC_URL || import.meta.env.VITE_LOCAL_
 
 const configuredWssUrl = import.meta.env.VITE_ARC_WSS_URL as string | undefined;
 
+const isMainnet = (import.meta.env.VITE_ARC_NETWORK as string | undefined) === 'mainnet';
+const DEFAULT_WSS = isMainnet ? 'wss://rpc.mainnet.arc.io' : 'wss://rpc.testnet.arc.io';
+
 function resolveWebSocketUrl(): string | undefined {
   if (configuredWssUrl) return configuredWssUrl;
-  // No custom RPC: use the WebSocket endpoints that ship with the Arc chain definition.
-  if (!httpUrl) return arcTestnet.rpcUrls.default.webSocket?.[0];
+  if (!httpUrl) return DEFAULT_WSS;
   // Same host with a ws(s) scheme. Providers that expose WS on a different path
   // (e.g. `.../websocket`) must set VITE_ARC_WSS_URL.
   return httpUrl.replace(/^http/, 'ws');
@@ -33,6 +35,6 @@ const transport = webSocketUrl
   : http(httpUrl);
 
 export const overlayClient = createPublicClient({
-  chain: arcTestnet,
+  chain: arcChain,
   transport,
 });

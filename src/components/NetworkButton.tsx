@@ -10,7 +10,7 @@
  * detects that and tells the user which entry to remove instead of failing silently.
  */
 import { useState } from 'react';
-import { arcTestnet } from 'viem/chains';
+import { arcChain } from '../config';
 import { Check, Loader2, PlugZap } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -54,7 +54,7 @@ export default function NetworkButton() {
   const configuredRpc = (import.meta.env.VITE_ARC_RPC_URL || import.meta.env.VITE_LOCAL_RPC_URL) as
     | string
     | undefined;
-  const rpcUrl = configuredRpc ?? arcTestnet.rpcUrls.default.http[0];
+  const rpcUrl = configuredRpc ?? arcChain.rpcUrls.default.http[0];
   const chainName = (import.meta.env.VITE_ARC_CHAIN_NAME as string | undefined) ?? 'Arc';
   const explorerUrl = import.meta.env.VITE_ARC_EXPLORER_URL as string | undefined;
   const [status, setStatus] = useState<'idle' | 'working' | 'done'>('idle');

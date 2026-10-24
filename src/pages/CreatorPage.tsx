@@ -6,7 +6,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { usePublicClient, useReadContract } from 'wagmi';
-import { arcTestnet } from 'viem/chains';
+import { arcChain } from '../config';
 import { ExternalLink, UserPlus } from 'lucide-react';
 import Layout from '../components/Layout';
 import DonationForm from '../components/DonationForm';
@@ -15,7 +15,7 @@ import { KASIH_ADDRESS, KASIH_ABI, MIN_DONATION_FLOOR_FALLBACK } from '../contra
 import { fetchProfileByWallet, resolveCreatorWallet, type ProfileRow } from '../lib/profiles';
 import { validateUsername } from '../lib/utils';
 
-const ARC_CHAIN_ID = arcTestnet.id;
+const ARC_CHAIN_ID = arcChain.id;
 
 export default function CreatorPage() {
   const { username = '' } = useParams<{ username: string }>();

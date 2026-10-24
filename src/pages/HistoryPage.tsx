@@ -3,7 +3,7 @@
  */
 import { useState, useEffect, useCallback } from 'react';
 import { useAccount, useReadContract, usePublicClient, useSwitchChain } from 'wagmi';
-import { arcTestnet } from 'viem/chains';
+import { arcChain } from '../config';
 import { ConnectKitButton } from 'connectkit';
 import { ExternalLink, Download, ChevronLeft, ChevronRight, Loader2, Search, Wallet, FilterX } from 'lucide-react';
 import Layout from '../components/Layout';
@@ -15,7 +15,7 @@ import { KASIH_ADDRESS, KASIH_ABI } from '../contract';
 import { formatUsdc, formatAddress, formatDate } from '../lib/utils';
 import { getChainDonations, ZERO_HASH } from '../lib/donations';
 
-const ARC_CHAIN_ID = arcTestnet.id;
+const ARC_CHAIN_ID = arcChain.id;
 const PAGE_SIZE = 20;
 
 interface Donation {

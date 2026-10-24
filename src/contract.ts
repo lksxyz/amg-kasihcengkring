@@ -3,7 +3,7 @@
  */
 
 export const KASIH_ADDRESS = (
-  import.meta.env.VITE_KASIH_ADDRESS || '0x0000000000000000000000000000000000000000'
+  import.meta.env.VITE_KASIH_ADDRESS || '0xbff209b432510373cc5c87d11d1889c42886cbf1'
 ) as `0x${string}`;
 
 export const MIN_DONATION_FLOOR_FALLBACK = 500_000n;

@@ -5,7 +5,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { useAccount, usePublicClient, useReadContract, useWriteContract, useWaitForTransactionReceipt, useSwitchChain } from 'wagmi';
-import { arcTestnet } from 'viem/chains';
+import { arcChain } from '../config';
 import { ConnectKitButton } from 'connectkit';
 import {
   Loader2,
@@ -29,7 +29,7 @@ import { useOnchainUsername } from '../lib/useOnchainUsername';
 import { syncProfileUsername } from '../lib/profiles';
 import { getChainDonations, ZERO_HASH, type DonationRow } from '../lib/donations';
 
-const ARC_CHAIN_ID = arcTestnet.id;
+const ARC_CHAIN_ID = arcChain.id;
 
 interface Donation {
   id: string;
@@ -540,6 +540,7 @@ function DonationRow({ d }: { d: Donation }) {
 
 function RegisterForm({ onRegistered }: { onRegistered: () => void }) {
   const { address } = useAccount();
+  const publicClient = usePublicClient({ chainId: ARC_CHAIN_ID });
   const [usernameInput, setUsernameInput] = useState('');
   const [payoutInput, setPayoutInput] = useState(address ?? '');
   const [minInput, setMinInput] = useState('1');
@@ -559,16 +560,6 @@ function RegisterForm({ onRegistered }: { onRegistered: () => void }) {
   });
   const floor = minFloor ?? MIN_DONATION_FLOOR_FALLBACK;
 
-  // Live availability check from contract
-  const { refetch: checkAvailability } = useReadContract({
-    address: KASIH_ADDRESS,
-    abi: KASIH_ABI,
-    functionName: 'isUsernameAvailable',
-    args: [usernameInput],
-    chainId: ARC_CHAIN_ID,
-    query: { enabled: false },
-  });
-
   useEffect(() => {
     if (isSuccess) {
       toast.success('Username registered.');
@@ -576,14 +567,8 @@ function RegisterForm({ onRegistered }: { onRegistered: () => void }) {
     }
   }, [isSuccess, onRegistered]);
 
-  // Keep the latest refetch in a ref so the debounce effect does not restart on
-  // every render (unstable hook identity made the spinner flicker).
-  const checkRef = useRef(checkAvailability);
-  useEffect(() => {
-    checkRef.current = checkAvailability;
-  }, [checkAvailability]);
-
-  // Debounced availability check while typing
+  // Availability check via publicClient directly — bypasses wagmi chain matching
+  // so it works regardless of which network the wallet is currently on.
   useEffect(() => {
     if (usernameInput.length < 3) {
       setAvailability('unknown');
@@ -596,15 +581,18 @@ function RegisterForm({ onRegistered }: { onRegistered: () => void }) {
 
     let cancelled = false;
     const timer = setTimeout(() => {
-      // Only show the spinner when the RPC call actually starts, so fast typing
-      // does not flash "checking" on every keystroke.
       setAvailability('checking');
-      void checkRef.current()
-        .then((result) => {
+      const client = publicClient;
+      if (!client) { setAvailability('unknown'); return; }
+      void client.readContract({
+        address: KASIH_ADDRESS,
+        abi: KASIH_ABI,
+        functionName: 'isUsernameAvailable',
+        args: [usernameInput],
+      })
+        .then((available: boolean) => {
           if (cancelled) return;
-          // undefined means the read failed (wrong RPC/contract), not "taken".
-          if (result.data === undefined) setAvailability('unknown');
-          else setAvailability(result.data ? 'available' : 'taken');
+          setAvailability(available ? 'available' : 'taken');
         })
         .catch(() => {
           if (!cancelled) setAvailability('unknown');

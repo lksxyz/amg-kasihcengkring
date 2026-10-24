@@ -4,7 +4,7 @@
  */
 import { useState, useEffect, useId } from 'react';
 import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt, useSwitchChain } from 'wagmi';
-import { arcTestnet } from 'viem/chains';
+import { arcChain } from '../config';
 import { isAddress } from 'viem';
 import { ConnectKitButton } from 'connectkit';
 import { Loader2, Save, AlertCircle, CheckCircle2, LogOut, Upload, Wallet, TriangleAlert } from 'lucide-react';
@@ -16,7 +16,7 @@ import { KASIH_ADDRESS, KASIH_ABI, MIN_DONATION_FLOOR_FALLBACK } from '../contra
 import { formatUsdc, parseUsdcInput, decodeRevert } from '../lib/utils';
 import { useOnchainUsername } from '../lib/useOnchainUsername';
 
-const ARC_CHAIN_ID = arcTestnet.id;
+const ARC_CHAIN_ID = arcChain.id;
 
 interface ProfilePayload {
   display_name: string | null;

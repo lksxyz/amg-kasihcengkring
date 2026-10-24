@@ -6,7 +6,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useAccount, usePublicClient, useReadContract, useWriteContract, useWaitForTransactionReceipt, useSwitchChain } from 'wagmi';
 import { erc20Abi } from 'viem';
-import { arcTestnet } from 'viem/chains';
+import { arcChain } from '../config';
 import { ConnectKitButton } from 'connectkit';
 import { Loader2, ExternalLink, CheckCircle2, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
@@ -14,7 +14,7 @@ import { KASIH_ADDRESS, KASIH_ABI } from '../contract';
 import { getUsdc, buildTxExplorerUrl } from '../onchain-facts';
 import { formatUsdc, parseUsdcInput, decodeRevert } from '../lib/utils';
 
-const ARC_CHAIN_ID = arcTestnet.id; // 5042002
+const ARC_CHAIN_ID = arcChain.id; // 5042002
 const usdcFact = getUsdc(ARC_CHAIN_ID);
 // Local Arc nodes use the same USDC predeploy; the override exists for forks
 // that ship a different token address.

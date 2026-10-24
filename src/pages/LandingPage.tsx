@@ -5,7 +5,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useReadContract } from 'wagmi';
-import { arcTestnet } from 'viem/chains';
+import { arcChain } from '../config';
 import { ArrowRight, ChevronDown } from 'lucide-react';
 import Layout from '../components/Layout';
 import { Skeleton } from '../components/Skeleton';
@@ -13,7 +13,7 @@ import { KASIH_ADDRESS, KASIH_ABI } from '../contract';
 import { buildAddressExplorerUrl } from '../onchain-facts';
 import { formatUsdc } from '../lib/utils';
 
-const ARC_CHAIN_ID = arcTestnet.id;
+const ARC_CHAIN_ID = arcChain.id;
 
 const EXAMPLE_USERNAME = (import.meta.env.VITE_EXAMPLE_CREATOR as string | undefined) ?? '';
 

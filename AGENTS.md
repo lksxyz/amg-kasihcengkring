@@ -10,14 +10,20 @@ platform fee (flat + proportional) is forwarded to the treasury in the same tran
 
 ## Contract Deployments
 
-**No Arc Testnet deployment yet.** Set `VITE_KASIH_ADDRESS` after deploying; until then the
-UI treats the app as not deployed and `bun run dev:local` runs the full flow locally.
+| Network | Address | Explorer |
+|---|---|---|
+| **Arc Mainnet** | `0x4030419B833B8265D8298360B507B2E2B5A0817A` | [view](https://explorer.arc.io/address/0x4030419B833B8265D8298360B507B2E2B5A0817A) |
+| Arc Testnet (v2) | `0xbff209b432510373cc5c87d11d1889c42886cbf1` | [view](https://explorer.testnet.arc.io/address/0xbff209b432510373cc5c87d11d1889c42886cbf1) |
+| Arc Testnet (v1, retired) | `0xe9ed1145c0ec41220a1dc6b76bee0b860d078678` | legacy |
 
-- **USDC (Arc Testnet):** `0x3600000000000000000000000000000000000000` (6 decimals)
+- **Deploy tx (mainnet):** `0x5c1387c8bc24acdc5c56c8f84b7f0837f49567acab455a8862012e760b8b6b2f`
+- **Deployer (mainnet):** `0xf52b1B2114B20f581a24dBC36dE6F0c20255dd33`
+- **USDC (Arc Mainnet):** `0x3600000000000000000000000000000000000000` (6 decimals)
 - **maxDonation:** 500 USDC (`500000000`)
 - **MIN_DONATION_FLOOR:** 0.50 USDC (`500000`)
-- **Platform fee:** 0.01 USDC flat + 100 bps (1%), hard-capped at 0.05 USDC + 500 bps
-- **Constructor:** `(usdc, maxDonation, treasury, feeBps, flatFee, owner)`
+- **Platform fee:** 2% (`feeBps=200`) + 0.01 USDC flat (`flatFee=10000`), hard-capped at 5% + 0.05 USDC
+- **Treasury:** `0xf52b1B2114B20f581a24dBC36dE6F0c20255dd33` (deployer — change with setTreasury() to a dedicated wallet)
+- **Constructor:** `(usdc, maxDonation, treasury, feeBps, flatFee, initialOwner)`
 
 ## What This App Does
 
@@ -43,7 +49,7 @@ UI treats the app as not deployed and `bun run dev:local` runs the full flow loc
 - Web3: wagmi v2, viem v2, ConnectKit
 - Contracts: Solidity 0.8.28 + Foundry + OpenZeppelin 5.1. Sources in `contracts/`, tests in
   `contracts/test/*.t.sol`. Build `bun run contracts:build`, test `bun run contracts:test`.
-- Wallet: injected (MetaMask, etc.); chain Arc Testnet (ID `5042002`); token USDC (6 decimals)
+- Wallet: injected (MetaMask, etc.); chain Arc Mainnet (ID `2040`); token USDC (6 decimals)
 - Hosting: static SPA on **Netlify** (`netlify.toml`); no backend, no server-held keys
 - Deploy: `bun run build` → `dist/`, or `bun run deploy` (Netlify CLI)
 

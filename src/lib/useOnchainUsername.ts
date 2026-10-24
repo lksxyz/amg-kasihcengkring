@@ -1,29 +1,26 @@
 /**
  * Recovers a wallet's username from chain state.
  *
- * Newer deployments expose `getUsernameByHash`, so the name can be read directly
- * from `walletToUsernameHash`. Older deployments only emit it in the
- * CreatorRegistered event, so we fall back to logs when the view is unavailable
- * (or returns nothing).
- *
- * The Supabase profile mirror normally fills the gap, but without it (local dev,
- * bare deployment) the dashboard would show an empty username even though
- * registration succeeded on-chain.
+ * New deployments expose `getUsernameByHash` — one cheap eth_call.
+ * Older deployments only emit it in the CreatorRegistered event, so we fall
+ * back to a chunked getLogs scan when the view returns nothing (avoids the
+ * -32012 "requested range too large" error from public Arc RPC).
  */
 import { useEffect, useState } from 'react';
 import { usePublicClient, useReadContract } from 'wagmi';
 import { parseAbiItem } from 'viem';
-import { arcTestnet } from 'viem/chains';
+import { arcChain } from '../config';
 import { KASIH_ADDRESS, KASIH_ABI } from '../contract';
 
 const ZERO_HASH = '0x0000000000000000000000000000000000000000000000000000000000000000' as const;
+const CHUNK = 1_800n;
 
 const CREATOR_REGISTERED = parseAbiItem(
   'event CreatorRegistered(bytes32 indexed usernameHash, string username, address indexed wallet, address payoutAddress)',
 );
 
 export function useOnchainUsername(address: `0x${string}` | undefined): string {
-  const publicClient = usePublicClient({ chainId: arcTestnet.id });
+  const publicClient = usePublicClient({ chainId: arcChain.id });
   const [username, setUsername] = useState('');
 
   const { data: usernameHash } = useReadContract({
@@ -31,7 +28,7 @@ export function useOnchainUsername(address: `0x${string}` | undefined): string {
     abi: KASIH_ABI,
     functionName: 'walletToUsernameHash',
     args: address ? [address] : undefined,
-    chainId: arcTestnet.id,
+    chainId: arcChain.id,
     query: { enabled: !!address },
   });
 
@@ -43,7 +40,7 @@ export function useOnchainUsername(address: `0x${string}` | undefined): string {
     abi: KASIH_ABI,
     functionName: 'getUsernameByHash',
     args: hasHash && usernameHash ? [usernameHash] : undefined,
-    chainId: arcTestnet.id,
+    chainId: arcChain.id,
     query: { enabled: hasHash, retry: false },
   });
 
@@ -51,27 +48,38 @@ export function useOnchainUsername(address: `0x${string}` | undefined): string {
     if (onchainName) setUsername(onchainName);
   }, [onchainName]);
 
-  // Fallback for deployments that predate `getUsernameByHash`.
+  // Fallback for deployments that predate `getUsernameByHash` — chunked scan.
   useEffect(() => {
     if (!address || !publicClient || onchainName) return;
     let cancelled = false;
 
-    void publicClient
-      .getLogs({
-        address: KASIH_ADDRESS,
-        event: CREATOR_REGISTERED,
-        args: { wallet: address },
-        fromBlock: 0n,
-      })
-      .then((logs) => {
-        const latest = logs[logs.length - 1];
-        if (!cancelled && latest?.args.username) setUsername(latest.args.username);
-      })
-      .catch(() => {});
-
-    return () => {
-      cancelled = true;
+    const scan = async () => {
+      const head = await publicClient.getBlockNumber();
+      // Scan only last 50 000 blocks; registration events are rare and recent.
+      const from = head > 50_000n ? head - 50_000n : 0n;
+      let start = from;
+      while (start <= head && !cancelled) {
+        const end = start + CHUNK - 1n < head ? start + CHUNK - 1n : head;
+        const logs = await publicClient.getLogs({
+          address: KASIH_ADDRESS,
+          event: CREATOR_REGISTERED,
+          args: { wallet: address },
+          fromBlock: start,
+          toBlock: end,
+        });
+        if (logs.length > 0) {
+          const latest = logs[logs.length - 1];
+          if (!cancelled && latest?.args.username) {
+            setUsername(latest.args.username);
+            return;
+          }
+        }
+        start = end + 1n;
+      }
     };
+
+    void scan().catch(() => {});
+    return () => { cancelled = true; };
   }, [address, publicClient, onchainName]);
 
   return username;

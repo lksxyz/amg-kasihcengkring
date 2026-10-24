@@ -1,7 +1,7 @@
 import { Link, useLocation } from 'react-router-dom';
 import { ConnectKitButton } from 'connectkit';
 import { Heart } from 'lucide-react';
-import { arcTestnet } from 'viem/chains';
+import { arcChain } from '../config';
 import { KASIH_ADDRESS } from '../contract';
 import { buildAddressExplorerUrl } from '../onchain-facts';
 
@@ -90,7 +90,7 @@ export default function Layout({ children, minimal = false }: LayoutProps) {
               <p>
                 Contract{' '}
                 <a
-                  href={buildAddressExplorerUrl(arcTestnet.id, KASIH_ADDRESS)}
+                  href={buildAddressExplorerUrl(arcChain.id, KASIH_ADDRESS)}
                   target="_blank"
                   rel="noreferrer"
                   className="mono link"

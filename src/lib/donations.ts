@@ -4,6 +4,9 @@
  * Supabase is only a mirror; when it is missing or not populated (local dev,
  * bare deployment) the UI still has to show donations. The contract indexes
  * both usernameHash and creator, so logs can be filtered by either.
+ *
+ * getLogs is chunked because public Arc RPC rejects ranges > ~2 000 blocks
+ * with error -32012 "requested range too large".
  */
 import { parseAbiItem, type Address, type Hex, type PublicClient } from 'viem';
 import { KASIH_ADDRESS } from '../contract';
@@ -40,9 +43,36 @@ interface DonationLog {
   };
 }
 
+/** Maximum block range per getLogs call — stay under the RPC's limit. */
+const CHUNK = 1_800n;
+
+/**
+ * Fetch all logs for the given filter, chunking across block ranges so
+ * no single call exceeds the RPC's range limit.
+ */
+async function getLogsChunked(
+  client: PublicClient,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  filter: Record<string, any>,
+  from: bigint,
+  to: bigint,
+): Promise<Awaited<ReturnType<PublicClient['getLogs']>>> {
+  const results: Awaited<ReturnType<PublicClient['getLogs']>> = [];
+  let start = from;
+  while (start <= to) {
+    const end = start + CHUNK - 1n < to ? start + CHUNK - 1n : to;
+    // oxlint-disable-next-line typescript/no-unsafe-argument
+    const chunk = await client.getLogs({ ...filter, fromBlock: start, toBlock: end });
+    results.push(...chunk);
+    start = end + 1n;
+  }
+  return results;
+}
+
 export async function getChainDonations(
   client: PublicClient,
   filter: { usernameHash?: Hex; creator?: Address },
+  deployBlock?: bigint,
 ): Promise<DonationRow[]> {
   const args = filter.usernameHash
     ? { usernameHash: filter.usernameHash }
@@ -51,12 +81,20 @@ export async function getChainDonations(
       : null;
   if (!args) return [];
 
-  const logs = await client.getLogs({
-    address: KASIH_ADDRESS,
-    event: DONATION_RECEIVED,
-    args,
-    fromBlock: 0n,
-  });
+  const head = await client.getBlockNumber();
+  // Start from deploy block when known, otherwise last 50 000 blocks (≈ ~1 day on Arc at ~2s blocks)
+  const from = deployBlock ?? (head > 50_000n ? head - 50_000n : 0n);
+
+  const logs = await getLogsChunked(
+    client,
+    {
+      address: KASIH_ADDRESS,
+      event: DONATION_RECEIVED,
+      args,
+    },
+    from,
+    head,
+  );
 
   return (logs as DonationLog[])
     .map((log) => {
