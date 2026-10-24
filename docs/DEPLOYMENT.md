@@ -82,6 +82,8 @@ filename order:
 1. `20261022090000_profiles.sql` — profile table, `updated_at` trigger, RLS.
 2. `20261022090100_donations.sql` — donation mirror + `hidden` flag, RLS.
 3. `20261022090200_avatars_storage.sql` — public `avatars` bucket + upload policies.
+4. `20261023000000_donation_fees.sql` — `fee_raw` + generated `net_raw`, so the mirror keeps
+   gross, fee, and net after the platform fee landed in the contract.
 
 Apply with the Supabase CLI:
 
@@ -167,7 +169,7 @@ contract and registration appears broken.
 - Decide whether to keep the Arc Studio watermark and the generated diagnostics modules.
 
 ### Supabase mirror (optional)
-- Create the project, `supabase link`, `supabase db push` (three migrations in `supabase/migrations/`).
+- Create the project, `supabase link`, `supabase db push` (four migrations in `supabase/migrations/`).
 - `creator-stats` lives in `supabase/functions/creator-stats/`; deploy it and point
   `VITE_CREATOR_STATS_URL` at it, or leave the variable unset and the dashboard computes stats
   from chain.

@@ -84,6 +84,7 @@ src/
   tracing.ts                GENERATED diagnostics
 scripts/                    deploy + ABI fetch tooling
 supabase/migrations/        profiles, donations, avatar bucket (optional mirror)
+supabase/functions/         creator-stats aggregation edge function
 docs/
   ARCHITECTURE.md           system design and data flow
   DEPLOYMENT.md             Netlify deployment and operations
@@ -212,9 +213,11 @@ Bun `1.3.14`, SPA rewrite `/* → /index.html`, immutable caching for `/assets/*
 
 ## Optional Supabase mirror
 
-`supabase/migrations/` contains the profile, donation, and avatar-bucket schema. Apply it
-with `supabase db push` (or paste the files in order into the SQL editor), then set
-`VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY`. See
+`supabase/migrations/` contains the profile, donation (with the fee split), and avatar-bucket
+schema, plus `supabase/functions/creator-stats` for dashboard aggregates. Apply the schema
+with `supabase db push` (or paste the files in order into the SQL editor), deploy the function
+with `supabase functions deploy creator-stats`, then set `VITE_SUPABASE_URL` +
+`VITE_SUPABASE_ANON_KEY`. See
 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#supabase-mirror-optional).
 
 ## Security
