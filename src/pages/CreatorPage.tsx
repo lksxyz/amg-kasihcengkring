@@ -1,33 +1,26 @@
 /**
  * /:username — Public creator profile page.
- * Shows: profile (from Supabase) and the donation form.
+ * Shows: profile (from Supabase, keyed by the on-chain registrant wallet) and the donation form.
  * Falls back to chain data for minDonation/maxDonation.
  */
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { useReadContract } from 'wagmi';
+import { usePublicClient, useReadContract } from 'wagmi';
 import { arcTestnet } from 'viem/chains';
 import { ExternalLink, UserPlus } from 'lucide-react';
 import Layout from '../components/Layout';
 import DonationForm from '../components/DonationForm';
 import { Skeleton, SkeletonText } from '../components/Skeleton';
 import { KASIH_ADDRESS, KASIH_ABI, MIN_DONATION_FLOOR_FALLBACK } from '../contract';
+import { fetchProfileByWallet, resolveCreatorWallet, type ProfileRow } from '../lib/profiles';
 import { validateUsername } from '../lib/utils';
 
 const ARC_CHAIN_ID = arcTestnet.id;
 
-interface Profile {
-  username: string;
-  display_name: string | null;
-  bio: string | null;
-  avatar_url: string | null;
-  twitter_url: string | null;
-  website_url: string | null;
-}
-
 export default function CreatorPage() {
   const { username = '' } = useParams<{ username: string }>();
-  const [profile, setProfile] = useState<Profile | null>(null);
+  const publicClient = usePublicClient({ chainId: ARC_CHAIN_ID });
+  const [profile, setProfile] = useState<ProfileRow | null>(null);
   const supabaseConfigured = !!(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY);
   const [loadingProfile, setLoadingProfile] = useState(supabaseConfigured);
 
@@ -63,26 +56,6 @@ export default function CreatorPage() {
     chainId: ARC_CHAIN_ID,
   });
 
-  // Supabase: load profile
-  useEffect(() => {
-    if (!username) return;
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-    const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
-    if (!supabaseUrl || !supabaseAnonKey) {
-      return;
-    }
-    void fetch(`${supabaseUrl}/rest/v1/profiles?username=eq.${encodeURIComponent(username.toLowerCase())}&select=*`, {
-      headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${supabaseAnonKey}` },
-    })
-      .then((r) => {
-        if (!r.ok) throw new Error(`profiles ${r.status}`);
-        return r.json() as Promise<Profile[]>;
-      })
-      .then((rows) => setProfile(rows[0] ?? null))
-      .catch(() => setProfile(null))
-      .finally(() => setLoadingProfile(false));
-  }, [username]);
-
   const isRegistered = safeCreator ? safeCreator[3] : legacyCreator?.[2] === true;
   const minDonation: bigint =
     (safeCreator ? safeCreator[2] : legacyCreator?.[1]) ?? MIN_DONATION_FLOOR_FALLBACK;
@@ -97,6 +70,36 @@ export default function CreatorPage() {
     validateUsername(username) !== null ||
     (!isSafeCreatorLoading && !!safeCreator && !safeCreator[0]);
   const notFound = !isLoading && !isRegistered && !invalidUsername;
+
+  // Supabase mirror, joined by wallet rather than username: the row is only trusted when the
+  // `CreatorRegistered` log says this wallet owns the username, so an anon-written row cannot
+  // decorate someone else's page. A missing row just means no bio/avatar.
+  useEffect(() => {
+    if (!supabaseConfigured) return;
+    if (isCreatorLoading) return; // keep the skeleton until the chain verdict on registration
+    if (username.length < 3 || !isRegistered || !publicClient) {
+      setProfile(null);
+      setLoadingProfile(false);
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const wallet = await resolveCreatorWallet(publicClient, username);
+        const row = wallet ? await fetchProfileByWallet(wallet) : null;
+        if (!cancelled) setProfile(row);
+      } catch {
+        if (!cancelled) setProfile(null);
+      } finally {
+        if (!cancelled) setLoadingProfile(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [username, isRegistered, isCreatorLoading, publicClient, supabaseConfigured]);
 
   if (invalidUsername) {
     return (

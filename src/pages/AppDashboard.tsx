@@ -26,6 +26,7 @@ import { KASIH_ADDRESS, KASIH_ABI, MIN_DONATION_FLOOR_FALLBACK } from '../contra
 import { buildTxExplorerUrl } from '../onchain-facts';
 import { formatUsdc, formatAddress, formatDate, validateUsername, parseUsdcInput, decodeRevert } from '../lib/utils';
 import { useOnchainUsername } from '../lib/useOnchainUsername';
+import { syncProfileUsername } from '../lib/profiles';
 import { getChainDonations, ZERO_HASH, type DonationRow } from '../lib/donations';
 
 const ARC_CHAIN_ID = arcTestnet.id;
@@ -95,6 +96,14 @@ export default function AppDashboard() {
   const [copied, setCopied] = useState(false);
   const onchainUsername = useOnchainUsername(address);
   const effectiveUsername = username || onchainUsername;
+
+  // The claim happens on chain, so the mirror only needs to catch up. Doing it here means a
+  // creator who registers and never opens /app/setting still ends up with a `profiles` row.
+  // Best-effort: syncProfileUsername never throws and skips the write when the row matches.
+  useEffect(() => {
+    if (!address || !isRegistered || !onchainUsername) return;
+    void syncProfileUsername(address, onchainUsername);
+  }, [address, isRegistered, onchainUsername]);
 
   useEffect(() => {
     if (!address || !isRegistered) return;

@@ -151,6 +151,12 @@ keeps a long-lived socket; the rest of the app stays on plain HTTP.
 - Supabase is a convenience mirror: profile metadata, donation list, aggregate stats. All
   fetches are guarded by `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` and fail silently to
   empty states. No Supabase credentials are required to donate or register.
+- Profile rows are anon-writable, so a row is only used when the chain agrees it belongs to
+  the creator: `/:username` resolves the registrant wallet from the `CreatorRegistered` log
+  (`usernameHash` is indexed, and `usernameHash = keccak256(bytes(username))`) and then reads
+  `profiles` by `wallet_address`. Write side is `src/lib/profiles.ts#syncProfileUsername`,
+  which mirrors the chain-confirmed username after registration instead of waiting for the
+  creator to press Save in settings.
 - Donation history is mirrored, not reconstructed from `eth_getLogs` in the browser, to keep
   the SPA light. The chain remains the audit trail.
 

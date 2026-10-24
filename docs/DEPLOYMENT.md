@@ -197,8 +197,11 @@ contract and registration appears broken.
 2. Authenticated (or read-only) profile/donation writes in Supabase.
 3. Donation indexer or RPC log limits resolved.
 4. `creator-stats` deployed and `VITE_CREATOR_STATS_URL` set, or accept chain-computed stats.
-5. Production env vars set for contract and RPC.
-6. Bundle secret scan clean.
+5. Service-role `profile-sync` reconciler: evict `profiles` rows whose username belongs to
+   another wallet on chain (the anon key cannot delete, so the browser cannot self-heal a
+   squatting conflict). Until then pages render without mirrored metadata.
+6. Production env vars set for contract and RPC.
+7. Bundle secret scan clean.
 
 ## Post-deploy checklist
 

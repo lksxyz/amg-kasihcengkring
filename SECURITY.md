@@ -215,6 +215,19 @@ unreachable.
   mirror.
 - **Mirror is untrusted input.** Profile text and donation rows are rendered from Supabase.
   React escapes text; do not introduce `dangerouslySetInnerHTML` for mirrored fields.
+- **Mirror rows are anon-writable, so identity is resolved on chain.** `profiles` accepts
+  inserts/updates from the anon key (see `supabase/migrations`), which means any wallet can
+  write a row with *any* username, including one claimed on-chain by someone else. Reads
+  therefore never trust `profiles.username` on its own: `/:username` resolves the registrant
+  from the `CreatorRegistered` log (`usernameHash` → `wallet`) and joins the mirror by
+  `wallet_address`. A squatting row can at worst sit unused; it cannot decorate another
+  creator's page. The write side is `syncProfileUsername`, which mirrors the chain-confirmed
+  username after registration — it never overwrites another wallet's row, and the anon key
+  cannot delete one.
+- **Residual: `username` unique conflicts.** Because `profiles.username` is unique, a squatter
+  who writes the name first blocks the real creator's sync (HTTP 409). Only a service-role
+  reconciler can evict that row; until one runs, the creator's page simply renders without
+  mirrored metadata. Tracked as a launch blocker in `docs/DEPLOYMENT.md`.
 - **Hosting compromise is UI-only.** A malicious CDN could display false balances or
   addresses, but cannot sign or move funds. Users must confirm the transaction in their
   wallet; the contract remains the source of truth.
