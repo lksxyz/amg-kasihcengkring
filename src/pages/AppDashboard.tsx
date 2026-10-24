@@ -101,10 +101,6 @@ export default function AppDashboard() {
     let cancelled = false;
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
     const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
-    // Aggregation edge function is optional and not part of this repo. Only call it when a
-    // deployment actually provides one, otherwise every dashboard load would 404 (and log a
-    // failed CORS preflight) for a URL that was never going to answer.
-    const creatorStatsUrl = import.meta.env.VITE_CREATOR_STATS_URL as string | undefined;
 
     // Chain is authoritative; the Supabase mirror may refine it afterwards.
     const loadChain = async () => {
@@ -125,6 +121,12 @@ export default function AppDashboard() {
     void loadChain();
 
     if (!supabaseUrl || !supabaseAnonKey) return () => { cancelled = true; };
+
+    // Aggregation is served by supabase/functions/creator-stats. Default to it once Supabase is
+    // configured; override with VITE_CREATOR_STATS_URL, or set that to an empty value to opt out.
+    const creatorStatsUrl =
+      (import.meta.env.VITE_CREATOR_STATS_URL as string | undefined) ??
+      `${supabaseUrl}/functions/v1/creator-stats`;
 
     void fetch(`${supabaseUrl}/rest/v1/profiles?wallet_address=eq.${address.toLowerCase()}&select=username`, {
       headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${supabaseAnonKey}` },
@@ -147,7 +149,9 @@ export default function AppDashboard() {
           return r.json() as Promise<Stats>;
         })
         .then((data) => {
-          if (!cancelled && data?.total) setStats(data);
+          // A missing or not-yet-indexed mirror reports zeros; never let it wipe the
+          // chain-computed numbers.
+          if (!cancelled && data && data.count > 0) setStats(data);
         })
         .catch(() => {});
     }

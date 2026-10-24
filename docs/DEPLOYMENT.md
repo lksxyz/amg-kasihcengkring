@@ -103,9 +103,12 @@ Notes:
   move writes behind a signature-verifying edge function before mainnet.
 - `donations` is populated by an indexer using the service role; the browser never inserts
   donations.
-- `GET /functions/v1/creator-stats` is an aggregation edge function and is not created by these
-  migrations. It is opt-in: set `VITE_CREATOR_STATS_URL` to its full URL only once you deploy it.
-  Without that variable no request is made and dashboard stats come from chain logs.
+- `GET /functions/v1/creator-stats` is the aggregation edge function in
+  [`supabase/functions/creator-stats/`](../supabase/functions/creator-stats). Deploy it with
+  `supabase functions deploy creator-stats --project-ref <ref>`; it needs no extra secret (it
+  reads `donations` with the injected anon key, which RLS already opens for select). The client
+  only calls it when `VITE_CREATOR_STATS_URL` is set, otherwise dashboard stats come from chain
+  logs and no request is made.
 
 ## Contract redeploy handoff
 
@@ -165,7 +168,9 @@ contract and registration appears broken.
 
 ### Supabase mirror (optional)
 - Create the project, `supabase link`, `supabase db push` (three migrations in `supabase/migrations/`).
-- `creator-stats` edge function is not in this repo; without it the dashboard computes stats from chain.
+- `creator-stats` lives in `supabase/functions/creator-stats/`; deploy it and point
+  `VITE_CREATOR_STATS_URL` at it, or leave the variable unset and the dashboard computes stats
+  from chain.
 - A `DonationReceived` indexer (service role) is needed to populate `donations`; without it the UI
   falls back to `eth_getLogs`, which gets slower and may hit RPC range limits.
 - Review RLS before launch: current policies allow anon writes (profiles, `hidden` flag). Move writes
@@ -189,7 +194,7 @@ contract and registration appears broken.
 1. Contract audit.
 2. Authenticated (or read-only) profile/donation writes in Supabase.
 3. Donation indexer or RPC log limits resolved.
-4. `creator-stats` implemented, or accept chain-computed stats.
+4. `creator-stats` deployed and `VITE_CREATOR_STATS_URL` set, or accept chain-computed stats.
 5. Production env vars set for contract and RPC.
 6. Bundle secret scan clean.
 

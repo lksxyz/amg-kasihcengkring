@@ -1,0 +1,7 @@
+# Supabase CLI config. Only what this repo needs: the linked project and the
+# edge function's JWT policy. Migrations live in supabase/migrations/.
+project_id = "ipezcfriakounehjgvvc"
+
+[functions.creator-stats]
+# Callers present the public anon key, which is a valid project JWT.
+verify_jwt = true

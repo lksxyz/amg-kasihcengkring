@@ -41,3 +41,6 @@ traces.jsonl
 coverage/
 .tsbuildinfo
 *.tsbuildinfo
+
+# Supabase CLI link cache (per-machine)
+supabase/.temp/
