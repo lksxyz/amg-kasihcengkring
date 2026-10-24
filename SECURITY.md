@@ -231,9 +231,11 @@ unreachable.
 - **Hosting compromise is UI-only.** A malicious CDN could display false balances or
   addresses, but cannot sign or move funds. Users must confirm the transaction in their
   wallet; the contract remains the source of truth.
-- **Baseline headers** are declared in `netlify.toml` (`nosniff`, frame denial, referrer and
-  permissions policies). A strict CSP is not set because ConnectKit/WalletConnect inject
-  inline code; adding one requires testing the wallet flow end to end.
+- **Baseline headers** are declared in `netlify.toml` and shipped inside the artifact via
+  `public/_headers` (`nosniff`, frame denial, referrer and permissions policies); the
+  duplicated file is what makes them apply to CLI deploys too. A strict CSP is not set because
+  ConnectKit/WalletConnect inject inline code; adding one requires testing the wallet flow end
+  to end.
 - **Supply chain.** `bun.lock` is committed and installs are lockfile-frozen in CI/deploys.
   Review dependency changes before upgrading wallet libraries.
 

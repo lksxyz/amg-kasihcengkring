@@ -19,7 +19,10 @@ removes.
 
 Given the requirements, the deployment surface is:
 
-- `netlify.toml` — build, publish directory, SPA rewrite, headers.
+- `netlify.toml` — build, publish directory, SPA rewrite, headers (applies to Git builds).
+- `public/_redirects` + `public/_headers` — the same rewrite and headers *inside* `dist/`, so
+  `netlify deploy --dir=dist` keeps them; `netlify.toml` is ignored by CLI and drag-and-drop
+  deploys.
 - Netlify environment variables — optional contract address override.
 - Netlify CLI or Git integration — the actual deploy trigger.
 
@@ -41,6 +44,12 @@ Committed in [`netlify.toml`](../netlify.toml):
 | `/assets/*` | `Cache-Control: max-age=31536000, immutable` | Vite hashes filenames |
 | `/index.html` | `max-age=0, must-revalidate` | New deploys are picked up immediately |
 | Security headers | `nosniff`, `DENY` framing, referrer policy, permissions policy | Baseline hardening |
+
+The rewrite and headers are declared **twice on purpose**: `netlify.toml` covers Git-connected
+builds, and `public/_redirects` / `public/_headers` are copied into `dist/` so a
+`netlify deploy --prod --dir=dist` publishes identical behaviour. Netlify only reads those two
+files from the published directory, and a site deployed that way ignores `netlify.toml`
+entirely — which shows up as a 404 on every deep link and missing security headers.
 
 `bun run build` runs `vite build` only. Type errors are caught by `bun run check` before
 pushing, so a Netlify build is not blocked by a lint nit. If you want Netlify to gate on
@@ -137,7 +146,7 @@ contract and registration appears broken.
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| Deep link 404 on refresh | Redirect rule missing/ignored | Confirm `netlify.toml` is at repo root and the site uses it (not UI-only settings) |
+| Deep link 404 on refresh | Rewrite missing/ignored | `public/_redirects` must be in `dist/`; check `curl -I https://<site>/app` returns 200, not 404 |
 | Build fails on `bun` | Bun not installed by Netlify | Keep `BUN_VERSION`; or commit `bunfig.toml` and use `bun run build` explicitly |
 | Wallet connects, reads empty | Wrong chain | UI shows a switch prompt; Arc Testnet is chain `5042002` |
 | Donation reverts with "donation limit" | Amount outside `effectiveMin..maxDonation` | Check creator min and global cap; UI refetches allowance |
