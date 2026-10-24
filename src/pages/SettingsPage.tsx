@@ -247,7 +247,7 @@ export default function SettingsPage() {
     if (!payoutInput || !payoutConfirmed || !payoutAddressValid) return;
     setPayoutError('');
     writeUpdatePayout(
-      { address: KASIH_ADDRESS, abi: KASIH_ABI, functionName: 'updatePayoutAddress', args: [payoutInput as `0x${string}`], chainId: ARC_CHAIN_ID },
+      { address: KASIH_ADDRESS, abi: KASIH_ABI, functionName: 'updatePayoutAddress', args: [payoutInput], chainId: ARC_CHAIN_ID },
       { onSuccess: (h) => { setPayoutTxHash(h); setPayoutDialogOpen(false); setPayoutConfirmText(''); }, onError: (e) => setPayoutError(decodeRevert(e)) }
     );
   };

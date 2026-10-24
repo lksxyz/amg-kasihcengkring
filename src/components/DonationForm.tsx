@@ -321,8 +321,8 @@ export default function DonationForm({ username, minDonation, maxDonation, onSuc
 
   const submit = () => {
     if (!amountValid) return;
-    if (needsApproval) handleApprove();
-    else handleDonate();
+    if (needsApproval) void handleApprove();
+    else void handleDonate();
   };
 
   return (
