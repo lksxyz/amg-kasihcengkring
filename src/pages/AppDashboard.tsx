@@ -101,6 +101,10 @@ export default function AppDashboard() {
     let cancelled = false;
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
     const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+    // Aggregation edge function is optional and not part of this repo. Only call it when a
+    // deployment actually provides one, otherwise every dashboard load would 404 (and log a
+    // failed CORS preflight) for a URL that was never going to answer.
+    const creatorStatsUrl = import.meta.env.VITE_CREATOR_STATS_URL as string | undefined;
 
     // Chain is authoritative; the Supabase mirror may refine it afterwards.
     const loadChain = async () => {
@@ -134,17 +138,19 @@ export default function AppDashboard() {
       })
       .catch(() => {});
 
-    void fetch(`${supabaseUrl}/functions/v1/creator-stats?wallet=${address}`, {
-      headers: { Authorization: `Bearer ${supabaseAnonKey}` },
-    })
-      .then((r) => {
-        if (!r.ok) throw new Error(`creator-stats ${r.status}`);
-        return r.json() as Promise<Stats>;
+    if (creatorStatsUrl) {
+      void fetch(`${creatorStatsUrl}?wallet=${address}`, {
+        headers: { Authorization: `Bearer ${supabaseAnonKey}` },
       })
-      .then((data) => {
-        if (!cancelled && data?.total) setStats(data);
-      })
-      .catch(() => {});
+        .then((r) => {
+          if (!r.ok) throw new Error(`creator-stats ${r.status}`);
+          return r.json() as Promise<Stats>;
+        })
+        .then((data) => {
+          if (!cancelled && data?.total) setStats(data);
+        })
+        .catch(() => {});
+    }
 
     void fetch(`${supabaseUrl}/rest/v1/donations?creator_wallet=eq.${address.toLowerCase()}&order=block_timestamp.desc&limit=5&select=*`, {
       headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${supabaseAnonKey}` },
