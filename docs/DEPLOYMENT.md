@@ -103,8 +103,9 @@ Notes:
   move writes behind a signature-verifying edge function before mainnet.
 - `donations` is populated by an indexer using the service role; the browser never inserts
   donations.
-- `GET /functions/v1/creator-stats` is an edge function and is not created by these
-  migrations. Without it, dashboard stats show placeholder values.
+- `GET /functions/v1/creator-stats` is an aggregation edge function and is not created by these
+  migrations. It is opt-in: set `VITE_CREATOR_STATS_URL` to its full URL only once you deploy it.
+  Without that variable no request is made and dashboard stats come from chain logs.
 
 ## Contract redeploy handoff
 
