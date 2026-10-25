@@ -9,7 +9,7 @@
  * with error -32012 "requested range too large".
  */
 import { parseAbiItem, type Address, type Hex, type PublicClient } from 'viem';
-import { KASIH_ADDRESS } from '../contract';
+import { KASIH_ADDRESS, KASIH_DEPLOY_BLOCK, LOG_CHUNK } from '../contract';
 
 export const DONATION_RECEIVED = parseAbiItem(
   'event DonationReceived(bytes32 indexed usernameHash, string username, address indexed donor, address indexed creator, string donorName, string message, uint256 amount, uint256 fee, uint256 timestamp)',
@@ -43,8 +43,8 @@ interface DonationLog {
   };
 }
 
-/** Maximum block range per getLogs call — stay under the RPC's limit. */
-const CHUNK = 1_800n;
+/** Maximum block range per getLogs call — Arc mainnet rejects 10 000 and above. */
+const CHUNK = LOG_CHUNK;
 
 /**
  * Fetch all logs for the given filter, chunking across block ranges so
@@ -82,8 +82,15 @@ export async function getChainDonations(
   if (!args) return [];
 
   const head = await client.getBlockNumber();
-  // Start from deploy block when known, otherwise last 50 000 blocks (≈ ~1 day on Arc at ~2s blocks)
-  const from = deployBlock ?? (head > 50_000n ? head - 50_000n : 0n);
+  // Prefer the deployment block: the contract cannot have logs before it, so scanning
+  // older blocks is pure RPC waste. Fall back to a 50k window when it is unknown.
+  const from =
+    deployBlock ??
+    (KASIH_DEPLOY_BLOCK > 0n
+      ? KASIH_DEPLOY_BLOCK
+      : head > 50_000n
+        ? head - 50_000n
+        : 0n);
 
   const logs = await getLogsChunked(
     client,

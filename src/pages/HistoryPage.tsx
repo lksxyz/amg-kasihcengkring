@@ -1,7 +1,7 @@
 /**
  * /app/history — Full donation history with search, date filter, CSV export.
  */
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAccount, useReadContract, usePublicClient, useSwitchChain } from 'wagmi';
 import { arcChain } from '../config';
 import { ConnectKitButton } from 'connectkit';
@@ -66,11 +66,13 @@ export default function HistoryPage() {
   const [dateTo, setDateTo] = useState('');
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(false);
+  // A full chain scan is one call now, but filtering/paging must not repeat it.
+  const chainRowsRef = useRef<{ hash: string; rows: Donation[] } | null>(null);
 
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
   const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
 
-  const fetchDonations = useCallback(async () => {
+  const fetchDonations = useCallback(async (force = false) => {
     if (!address) return;
     setLoading(true);
     setLoadError(false);
@@ -114,7 +116,9 @@ export default function HistoryPage() {
         setTotal(0);
         return;
       }
-      let rows = await getChainDonations(publicClient, { usernameHash: creatorHash });
+      const cached = !force && chainRowsRef.current?.hash === creatorHash ? chainRowsRef.current.rows : null;
+      let rows: Donation[] = cached ?? (await getChainDonations(publicClient, { usernameHash: creatorHash }));
+      if (!cached) chainRowsRef.current = { hash: creatorHash, rows };
       const q = search.trim().toLowerCase();
       if (q) {
         rows = rows.filter(
@@ -329,7 +333,7 @@ export default function HistoryPage() {
               title="Could not load donation history"
               description="Arc did not respond. Check your connection and try again."
             >
-              <button type="button" onClick={() => void fetchDonations()} className="btn btn-secondary btn-sm">
+              <button type="button" onClick={() => void fetchDonations(true)} className="btn btn-secondary btn-sm">
                 Try again
               </button>
             </EmptyState>

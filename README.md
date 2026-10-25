@@ -169,6 +169,7 @@ UI runs on chain reads alone.
 | `VITE_ARC_CHAIN_NAME` | no | Display name used when the header button adds the network. |
 | `VITE_ARC_EXPLORER_URL` | no | Explorer URL used when the header button adds the network. |
 | `VITE_KASIH_ADDRESS` | no | Contract address. Defaults to the deployed Arc Testnet instance. |
+| `VITE_KASIH_DEPLOY_BLOCK` | no | Contract deploy block. Log scans start here instead of a 50k window (one `eth_getLogs` call). |
 | `VITE_SUPABASE_URL` | no | Supabase project URL for profile/history mirror. |
 | `VITE_SUPABASE_ANON_KEY` | no | Supabase anon key (RLS must be configured server-side). |
 

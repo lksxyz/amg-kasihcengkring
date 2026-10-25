@@ -8,6 +8,17 @@ export const KASIH_ADDRESS = (
 
 export const MIN_DONATION_FLOOR_FALLBACK = 500_000n;
 
+/**
+ * First block that contains this contract. Log scans start here instead of a rolling
+ * 50k window, which turns a ~28-call scan into one call. Set per deployment.
+ */
+const deployBlockEnv = import.meta.env.VITE_KASIH_DEPLOY_BLOCK as string | undefined;
+
+export const KASIH_DEPLOY_BLOCK = deployBlockEnv ? BigInt(deployBlockEnv) : 0n;
+
+/** Max blocks per eth_getLogs call. Arc mainnet rejects ranges of 10 000 or more. */
+export const LOG_CHUNK = 9_000n;
+
 export const KASIH_ABI = [
   // Constants / views
   {

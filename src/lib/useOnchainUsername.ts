@@ -10,10 +10,10 @@ import { useEffect, useState } from 'react';
 import { usePublicClient, useReadContract } from 'wagmi';
 import { parseAbiItem } from 'viem';
 import { arcChain } from '../config';
-import { KASIH_ADDRESS, KASIH_ABI } from '../contract';
+import { KASIH_ADDRESS, KASIH_ABI, KASIH_DEPLOY_BLOCK, LOG_CHUNK } from '../contract';
 
 const ZERO_HASH = '0x0000000000000000000000000000000000000000000000000000000000000000' as const;
-const CHUNK = 1_800n;
+const CHUNK = LOG_CHUNK;
 
 const CREATOR_REGISTERED = parseAbiItem(
   'event CreatorRegistered(bytes32 indexed usernameHash, string username, address indexed wallet, address payoutAddress)',
@@ -55,8 +55,13 @@ export function useOnchainUsername(address: `0x${string}` | undefined): string {
 
     const scan = async () => {
       const head = await publicClient.getBlockNumber();
-      // Scan only last 50 000 blocks; registration events are rare and recent.
-      const from = head > 50_000n ? head - 50_000n : 0n;
+      // Registration cannot predate deployment — start there when it is known.
+      const from =
+        KASIH_DEPLOY_BLOCK > 0n
+          ? KASIH_DEPLOY_BLOCK
+          : head > 50_000n
+            ? head - 50_000n
+            : 0n;
       let start = from;
       while (start <= head && !cancelled) {
         const end = start + CHUNK - 1n < head ? start + CHUNK - 1n : head;

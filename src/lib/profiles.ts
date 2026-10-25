@@ -11,7 +11,7 @@
  * missing, unreachable, or holding a conflicting username must not break registration.
  */
 import { keccak256, parseAbiItem, toBytes, type Address, type Hex, type PublicClient } from 'viem';
-import { KASIH_ADDRESS } from '../contract';
+import { KASIH_ADDRESS, KASIH_DEPLOY_BLOCK, LOG_CHUNK } from '../contract';
 
 export const CREATOR_REGISTERED = parseAbiItem(
   'event CreatorRegistered(bytes32 indexed usernameHash, string username, address indexed wallet, address payoutAddress)',
@@ -40,7 +40,7 @@ export function hashUsername(username: string): Hex {
 
 const walletCache = new Map<string, Address | null>();
 
-const CHUNK = 1_800n;
+const CHUNK = LOG_CHUNK;
 
 async function getLogsChunked(
   client: PublicClient,
@@ -89,7 +89,12 @@ export async function resolveCreatorWallet(
   // Slow path: chunked log scan
   try {
     const head = await client.getBlockNumber();
-    const from = head > 50_000n ? head - 50_000n : 0n;
+    const from =
+      KASIH_DEPLOY_BLOCK > 0n
+        ? KASIH_DEPLOY_BLOCK
+        : head > 50_000n
+          ? head - 50_000n
+          : 0n;
     const logs = await getLogsChunked(
       client,
       { address: KASIH_ADDRESS, event: CREATOR_REGISTERED, args: { usernameHash: hashUsername(key) } },
