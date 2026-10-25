@@ -428,9 +428,9 @@ body {
   /* Testnet strip: 28px tall (Tailwind h-7), rendered above the header on testnet
      builds only. It is the single piece of chrome that differs between networks. */
   .testnet-banner {
-    background: #f6e7b0;
-    border-bottom: 1px solid rgba(107, 67, 0, 0.28);
-    color: #4a3000;
+    background: var(--accent);
+    border-bottom: 1px solid var(--accent-hover);
+    color: var(--accent-ink);
     font-size: 0.75rem;
     line-height: 1;
   }
@@ -457,7 +457,7 @@ body {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    color: #5c3d00;
+    color: var(--accent-ink);
   }
 
   .testnet-banner-link {
@@ -466,14 +466,14 @@ body {
     gap: 0.125rem;
     margin-left: auto;
     font-weight: 700;
-    color: #3d2700;
+    color: var(--accent-ink);
     text-decoration: underline;
     text-underline-offset: 2px;
     white-space: nowrap;
   }
 
   .testnet-banner-link:hover {
-    color: var(--ink);
+    color: var(--accent-deep);
   }
 
   @media (max-width: 639px) {
