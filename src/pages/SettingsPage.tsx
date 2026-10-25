@@ -15,6 +15,7 @@ import { StatePanel } from '../components/States';
 import { KASIH_ADDRESS, KASIH_ABI, MIN_DONATION_FLOOR_FALLBACK } from '../contract';
 import { formatUsdc, parseUsdcInput, decodeRevert } from '../lib/utils';
 import { useOnchainUsername } from '../lib/useOnchainUsername';
+import { SUPABASE_ANON_KEY, SUPABASE_URL } from '../lib/supabase';
 
 const ARC_CHAIN_ID = arcChain.id;
 
@@ -82,8 +83,8 @@ export default function SettingsPage() {
   const [payoutConfirmText, setPayoutConfirmText] = useState('');
   const [payoutStep, setPayoutStep] = useState<'confirm' | 'address'>('confirm');
 
-  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-  const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+  const supabaseUrl = SUPABASE_URL;
+  const supabaseAnonKey = SUPABASE_ANON_KEY;
 
   const { writeContract: writeUpdatePayout, isPending: isPayoutPending } = useWriteContract();
   const { isLoading: isPayoutConfirming, isSuccess: isPayoutSuccess } = useWaitForTransactionReceipt({ hash: payoutTxHash });
@@ -153,7 +154,7 @@ export default function SettingsPage() {
 
     if (!supabaseUrl || !supabaseAnonKey) {
       toast.error('Profile storage is not configured', {
-        description: 'Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY, then create the profiles table.',
+        description: 'Set the Supabase URL and anon key for this network, then create the profiles table.',
       });
       return;
     }

@@ -1,16 +1,17 @@
 /**
  * Adds/switches the wallet to the network this build is configured against.
  *
- * The RPC comes from VITE_ARC_RPC_URL (local node, Arc Testnet, mainnet — whatever
- * the deployment points at). The chain ID is read from that RPC instead of being
- * hardcoded, so the button always adds the network the app actually talks to.
+ * The RPC comes from the selected network in `src/network.ts` (local node, Arc Testnet,
+ * mainnet — whatever VITE_ARC_NETWORK points at). The chain ID is read from that RPC
+ * instead of being hardcoded, so the button always adds the network the app actually
+ * talks to.
  *
  * MetaMask identifies chains by ID, so an existing entry for the same ID with a
  * different RPC cannot be overridden by addEthereumChain. The genesis-hash check
  * detects that and tells the user which entry to remove instead of failing silently.
  */
 import { useState } from 'react';
-import { arcChain } from '../config';
+import { ARC_EXPLORER_URL, ARC_NETWORK_LABEL, ARC_RPC_URL } from '../network';
 import { Check, Loader2, PlugZap } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -51,12 +52,9 @@ async function rpcRequest<T>(rpcUrl: string, method: string, params: unknown[] =
 }
 
 export default function NetworkButton() {
-  const configuredRpc = (import.meta.env.VITE_ARC_RPC_URL || import.meta.env.VITE_LOCAL_RPC_URL) as
-    | string
-    | undefined;
-  const rpcUrl = configuredRpc ?? arcChain.rpcUrls.default.http[0];
-  const chainName = (import.meta.env.VITE_ARC_CHAIN_NAME as string | undefined) ?? 'Arc';
-  const explorerUrl = import.meta.env.VITE_ARC_EXPLORER_URL as string | undefined;
+  const rpcUrl = ARC_RPC_URL;
+  const chainName = ARC_NETWORK_LABEL;
+  const explorerUrl = ARC_EXPLORER_URL;
   const [status, setStatus] = useState<'idle' | 'working' | 'done'>('idle');
 
   const handleClick = async () => {
@@ -71,7 +69,7 @@ export default function NetworkButton() {
       const chainId = await rpcRequest<string>(rpcUrl, 'eth_chainId');
       if (!chainId) {
         toast.error(`Cannot reach RPC ${rpcUrl}`, {
-          description: 'Start the node (bun run dev:local) or fix VITE_ARC_RPC_URL.',
+          description: 'Start the node (bun run dev:local) or fix the RPC URL for this network.',
         });
         setStatus('idle');
         return;

@@ -4,7 +4,7 @@ Non-custodial creator donation platform on **Arc**. Supporters send USDC straigh
 creator's payout address. The contract never holds funds and donors need no account; the
 only platform revenue is a small fee forwarded to the treasury in the same transaction.
 
-> **Status:** Arc Testnet, unaudited. Use small amounts.
+> **Status:** Arc Testnet and Arc Mainnet, unaudited. Use small amounts.
 > See [SECURITY.md](SECURITY.md) for the threat model and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 > for how the pieces fit.
 
@@ -30,19 +30,22 @@ only platform revenue is a small fee forwarded to the treasury in the same trans
   (`eth_subscribe`) and falls back to HTTP polling if the socket fails, so it needs no backend
   and no wallet. The route is public; the data it renders is on-chain public anyway.
 
-## Deployed contract
+## Deployed contracts
 
-**Not deployed to Arc Testnet yet.** The app ships with no default address: set
-`VITE_KASIH_ADDRESS` to point it at a deployment. Until then, the UI reports the app as not
-deployed and `bun run dev:local` is the way to run the full flow against a local Arc node.
+One build targets one network at a time; `VITE_ARC_NETWORK` selects which. Both
+deployments ship as built-in defaults, so the app works without any address variables.
+
+| Network | Chain ID | Contract |
+|---|---|---|
+| Arc Mainnet | `5042` | `0x4030419B833B8265D8298360B507B2E2B5A0817A` |
+| Arc Testnet | `5042002` | `0xbff209b432510373cc5c87d11d1889c42886cbf1` |
 
 | | |
 |---|---|
-| Network | Arc Testnet (chain ID `5042002`) |
-| USDC (ERC-20 view) | `0x3600000000000000000000000000000000000000`, 6 decimals |
+| USDC (ERC-20 view) | `0x3600000000000000000000000000000000000000`, 6 decimals (both networks) |
 | `MIN_DONATION_FLOOR` | 0.50 USDC (`500000`) |
 | `maxDonation` | 500 USDC (`500000000`) |
-| Platform fee | 0.01 USDC + 1%, capped at 0.05 USDC + 5% |
+| Platform fee | 0.01 USDC + 2%, capped at 0.05 USDC + 5% |
 | Treasury | set at deploy; owner-rotatable, never the contract |
 
 Constructor: `(usdc, maxDonation, treasury, feeBps, flatFee, owner)`. `bun run dev:local`
@@ -105,8 +108,10 @@ cp .env.example .env      # optional: the deployed address is the built-in defau
 bun run dev               # http://localhost:5173
 ```
 
-The app targets Arc Testnet. Add the network to your wallet when prompted; the UI offers a
-switch button on the wrong chain.
+The app defaults to Arc Testnet. Add the network to your wallet when prompted; the UI offers a
+switch button on the wrong chain. To run against Arc Mainnet, set `VITE_ARC_NETWORK=mainnet`
+— the network's chain, RPC, contract address, deploy block, explorer, and USDC address all
+follow that one value.
 
 ### Local full loop (`bun run dev:local`)
 
@@ -125,8 +130,9 @@ What it does:
    and the dev account as owner.
 3. Funds `0xEf98df2e76dDA409fdF1F03889d150AAd387E86B` with native gas and ERC-20 USDC so the
    wallet can donate immediately.
-4. Writes `.env.localdev` (`VITE_ARC_RPC_URL`, `VITE_ARC_CHAIN_NAME`, contract address) and
-   serves the app in Vite mode `localdev` at `http://localhost:5173`.
+4. Writes `.env.localdev` (`VITE_ARC_NETWORK=testnet`, the testnet-group RPC, chain name,
+   contract address, and deploy block) and serves the app in Vite mode `localdev` at
+   `http://localhost:5173`.
 5. The header **Arc Local** button adds and switches MetaMask to that RPC
    (`wallet_addEthereumChain` + `wallet_switchEthereumChain`); the chain ID is read from the
    RPC, not hardcoded. If MetaMask already has a network for the same chain ID with a
@@ -162,16 +168,30 @@ UI runs on chain reads alone.
 
 ### Environment
 
+Switch networks with a single variable; everything else has a per-network group and a
+built-in default.
+
 | Variable | Required | Purpose |
 |---|---|---|
-| `VITE_ARC_RPC_URL` | no | RPC this build talks to (local / testnet / mainnet). Unset = viem default. |
-| `VITE_ARC_WSS_URL` | no | WebSocket RPC for the overlay. Unset = derived from `VITE_ARC_RPC_URL` or viem default. |
-| `VITE_ARC_CHAIN_NAME` | no | Display name used when the header button adds the network. |
-| `VITE_ARC_EXPLORER_URL` | no | Explorer URL used when the header button adds the network. |
-| `VITE_KASIH_ADDRESS` | no | Contract address. Defaults to the deployed Arc Testnet instance. |
-| `VITE_KASIH_DEPLOY_BLOCK` | no | Contract deploy block. Log scans start here instead of a 50k window (one `eth_getLogs` call). |
-| `VITE_SUPABASE_URL` | no | Supabase project URL for profile/history mirror. |
-| `VITE_SUPABASE_ANON_KEY` | no | Supabase anon key (RLS must be configured server-side). |
+| `VITE_ARC_NETWORK` | no | `testnet` (default) or `mainnet`. Selects the chain and the group below. |
+| `VITE_TESTNET_KASIH_ADDRESS` | no | Testnet contract. Defaults to the deployed testnet instance. |
+| `VITE_TESTNET_KASIH_DEPLOY_BLOCK` | no | Testnet deploy block (log scans start here). |
+| `VITE_TESTNET_RPC_URL` / `VITE_TESTNET_WSS_URL` | no | Testnet RPC endpoints. Unset = public endpoints. |
+| `VITE_TESTNET_EXPLORER_URL` / `VITE_TESTNET_CHAIN_NAME` | no | Wallet-prompt metadata for testnet. |
+| `VITE_TESTNET_USDC_ADDRESS` | no | Testnet USDC override. Defaults to the Arc predeploy. |
+| `VITE_MAINNET_KASIH_ADDRESS` | no | Mainnet contract. Defaults to the deployed mainnet instance. |
+| `VITE_MAINNET_KASIH_DEPLOY_BLOCK` | no | Mainnet deploy block. |
+| `VITE_MAINNET_RPC_URL` / `VITE_MAINNET_WSS_URL` | no | Mainnet RPC endpoints. Unset = public endpoints. |
+| `VITE_MAINNET_EXPLORER_URL` / `VITE_MAINNET_CHAIN_NAME` | no | Wallet-prompt metadata for mainnet. |
+| `VITE_MAINNET_USDC_ADDRESS` | no | Mainnet USDC override. |
+| `VITE_TESTNET_SUPABASE_URL` / `VITE_TESTNET_SUPABASE_ANON_KEY` | no | Testnet mirror project (separate from mainnet). |
+| `VITE_MAINNET_SUPABASE_URL` / `VITE_MAINNET_SUPABASE_ANON_KEY` | no | Mainnet mirror project. |
+| `VITE_TESTNET_CREATOR_STATS_URL` / `VITE_MAINNET_CREATOR_STATS_URL` | no | Per-network stats endpoint; empty disables it. |
+
+Legacy single-value names (`VITE_ARC_RPC_URL`, `VITE_KASIH_ADDRESS`,
+`VITE_KASIH_DEPLOY_BLOCK`, `VITE_ARC_WSS_URL`, `VITE_ARC_CHAIN_NAME`,
+`VITE_ARC_EXPLORER_URL`, `VITE_USDC_ADDRESS`) still work as a fallback — mainly for
+`bun run dev:local`. Prefer the per-network variables.
 
 ### Scripts
 
@@ -217,8 +237,8 @@ Bun `1.3.14`, SPA rewrite `/* → /index.html`, immutable caching for `/assets/*
 `supabase/migrations/` contains the profile, donation (with the fee split), and avatar-bucket
 schema, plus `supabase/functions/creator-stats` for dashboard aggregates. Apply the schema
 with `supabase db push` (or paste the files in order into the SQL editor), deploy the function
-with `supabase functions deploy creator-stats`, then set `VITE_SUPABASE_URL` +
-`VITE_SUPABASE_ANON_KEY`. See
+with `supabase functions deploy creator-stats`, then set the network's Supabase group
+(`VITE_TESTNET_SUPABASE_*` or `VITE_MAINNET_SUPABASE_*`). See
 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#supabase-mirror-optional).
 
 ## Security

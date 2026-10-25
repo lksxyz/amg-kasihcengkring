@@ -133,10 +133,18 @@ the zero balance, the fee caps, and treasury validity.
 **Providers** (`src/main.tsx`): `WagmiProvider` → `QueryClientProvider` →
 `ConnectKitProvider`, plus Sonner toasts and the Arc Studio watermark.
 
-**wagmi config** (`src/config.ts`): Arc Testnet as the write chain, Ethereum mainnet only
-for ENS resolution in ConnectKit. Transport is the chain's default public RPC; there is no
-platform RPC key. `VITE_ARC_RPC_URL` overrides the transport (local node, testnet, or a
-mainnet node); `bun run dev:local` writes it as `http://127.0.0.1:8545`. The header network
+**Network selection** (`src/network.ts`): one build targets one network.
+`VITE_ARC_NETWORK=testnet|mainnet` (default `testnet`) picks the chain plus that network's
+contract address, deploy block, USDC address, RPC, WSS endpoint, explorer, and wallet-prompt
+name. Each value has a `VITE_TESTNET_*` / `VITE_MAINNET_*` variable, so both groups can live
+in one `.env` and switching is a one-line change. The legacy single-value names
+(`VITE_ARC_RPC_URL`, `VITE_KASIH_ADDRESS`, …) remain as a fallback for `bun run dev:local`.
+Testnet builds render a 28 px strip above the header (`TestnetBanner`) with a link to
+Circle's faucet; mainnet builds render nothing.
+
+**wagmi config** (`src/config.ts`): the selected Arc chain is the write chain, Ethereum
+mainnet is present only for ENS resolution in ConnectKit. Transport is a `fallback` of the
+selected WebSocket and HTTP endpoints; there is no platform RPC key. The header network
 button reads the chain ID from that RPC and adds/switches the wallet to it, so no manual
 network entry is needed. The OBS overlay bypasses wagmi and uses its own read-only client
 (`src/lib/overlay-client.ts`): WebSocket `eth_subscribe` for live `DonationReceived` logs,
@@ -149,7 +157,8 @@ keeps a long-lived socket; the rest of the app stays on plain HTTP.
   allowance, `paused`. The app prefers `tryGetCreator` and `getUsernameByHash`, and falls back
   to `getCreator` / `CreatorRegistered` logs when talking to a deployment that predates them.
 - Supabase is a convenience mirror: profile metadata, donation list, aggregate stats. All
-  fetches are guarded by `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` and fail silently to
+  fetches are guarded by the network's `VITE_TESTNET_SUPABASE_URL` / `VITE_MAINNET_SUPABASE_URL`
+  and matching anon key, and fail silently to
   empty states. No Supabase credentials are required to donate or register.
 - Profile rows are anon-writable, so a row is only used when the chain agrees it belongs to
   the creator: `/:username` resolves the registrant wallet from the `CreatorRegistered` log
@@ -160,10 +169,11 @@ keeps a long-lived socket; the rest of the app stays on plain HTTP.
 - Donation history is mirrored, not reconstructed from `eth_getLogs` in the browser, to keep
   the SPA light. The chain remains the audit trail.
 
-**Contract binding** (`src/contract.ts`): address from `VITE_KASIH_ADDRESS` with the current
-Arc Testnet deployment as default; inline ABI kept in sync with the Solidity surface.
-`bun run dev:local` writes a fresh address plus `VITE_ARC_RPC_URL` to `.env.localdev` after
-deploying, and Vite runs with `--mode localdev` so those values are only applied locally.
+**Contract binding** (`src/contract.ts`): address comes from `src/network.ts` for the
+selected network (deployed Arc mainnet and testnet instances are built-in defaults); inline
+ABI kept in sync with the Solidity surface. `bun run dev:local` writes a fresh local address
+plus the testnet-group RPC/deploy block to `.env.localdev` after deploying, and Vite runs
+with `--mode localdev` so those values are only applied locally.
 
 **Generated modules** (`onchain-facts.ts`, `onchain-money.ts`, `onchain-wait.ts`,
 `tracing.ts`, `console-capture.ts`) come from Arc Studio. They exist to prevent three
@@ -202,8 +212,8 @@ why the contract state and wallet confirmation screen remain the final authority
   served first and cached immutably.
 - Security headers (`X-Content-Type-Options`, `X-Frame-Options: DENY`,
   `Referrer-Policy`, `Permissions-Policy`) are declared in `netlify.toml`.
-- Builds run on Netlify with Bun 1.3.14. No environment variables are strictly required;
-  `VITE_KASIH_ADDRESS` exists for redeploys against a different contract instance.
+- Builds run on Netlify with Bun 1.3.14. `VITE_ARC_NETWORK` is the only variable needed to
+  choose Arc Testnet or Arc Mainnet; the deployed contract addresses are built-in defaults.
 - Deploy previews per pull request are supported by Netlify by default.
 
 Operations runbook: [DEPLOYMENT.md](DEPLOYMENT.md).

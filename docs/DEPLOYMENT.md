@@ -63,8 +63,11 @@ types, change the build command to `bun run typecheck && vite build`.
 2. Netlify → **Add new site** → **Import an existing project** → pick the repo.
 3. Netlify reads `netlify.toml`; confirm build `bun run build`, publish `dist`.
 4. **Site configuration → Environment variables** (optional):
-   - `VITE_KASIH_ADDRESS = 0xe9ed1145c0ec41220a1dc6b76bee0b860d078678`
-   - `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` if the mirror is enabled.
+   - `VITE_ARC_NETWORK = testnet` (or `mainnet`)
+   - The matching group: `VITE_TESTNET_KASIH_ADDRESS` / `VITE_MAINNET_KASIH_ADDRESS`
+     (both default to the deployed instances), deploy block, and RPC if not public.
+   - `VITE_TESTNET_SUPABASE_URL` + `VITE_TESTNET_SUPABASE_ANON_KEY` (or the mainnet pair)
+     if the mirror is enabled.
 5. Deploy. Every push to the production branch redeploys; pull requests get deploy previews.
 
 ### Option B — CLI
@@ -103,8 +106,9 @@ supabase db push
 
 Or paste each file into the dashboard SQL editor, in order.
 
-Then set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in Netlify (or
-`.env.localdev` for local work) and redeploy.
+Then set `VITE_TESTNET_SUPABASE_URL` + `VITE_TESTNET_SUPABASE_ANON_KEY` (or the
+`VITE_MAINNET_*` pair) in Netlify (or `.env` for local work) and redeploy. Testnet and
+mainnet each have their own Supabase project; apply the migrations to both.
 
 Notes:
 
@@ -118,8 +122,9 @@ Notes:
   [`supabase/functions/creator-stats/`](../supabase/functions/creator-stats). Deploy it with
   `supabase functions deploy creator-stats --project-ref <ref>`; it needs no extra secret (it
   reads `donations` with the injected anon key, which RLS already opens for select). The client
-  only calls it when `VITE_CREATOR_STATS_URL` is set, otherwise dashboard stats come from chain
-  logs and no request is made.
+  calls it automatically once the network's Supabase group is configured; set
+  `VITE_TESTNET_CREATOR_STATS_URL` / `VITE_MAINNET_CREATOR_STATS_URL` to override it, or to an
+  empty value to disable the call (dashboard stats then come from chain logs).
 
 ## Contract redeploy handoff
 
@@ -168,20 +173,25 @@ contract and registration appears broken.
 ### Frontend (Netlify)
 - Repository connected to a Netlify site; build settings come from `netlify.toml`.
 - Required env vars:
-  - `VITE_KASIH_ADDRESS` — production contract address (do not ship the testnet default)
-  - `VITE_ARC_RPC_URL` — production RPC (HTTPS, CORS enabled, adequate rate limits)
-  - `VITE_ARC_CHAIN_NAME`, `VITE_ARC_EXPLORER_URL`
-- Optional: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, and `VITE_ARC_WSS_URL` (WebSocket
-  RPC for the overlay when the provider uses a different WS host or path than `VITE_ARC_RPC_URL`).
+  - `VITE_ARC_NETWORK` — `testnet` or `mainnet`; selects the whole group below.
+  - `VITE_MAINNET_KASIH_ADDRESS` / `VITE_TESTNET_KASIH_ADDRESS` — usually the built-in default.
+  - `VITE_MAINNET_RPC_URL` / `VITE_TESTNET_RPC_URL` — production RPC (HTTPS, CORS enabled,
+    adequate rate limits); unset = the public endpoint.
+  - `VITE_MAINNET_CHAIN_NAME` / `VITE_MAINNET_EXPLORER_URL` (and the testnet equivalents)
+    when the wallet prompt should show a custom name or explorer.
+- Optional: `VITE_MAINNET_SUPABASE_URL`, `VITE_MAINNET_SUPABASE_ANON_KEY` (or the testnet
+  pair), and `VITE_MAINNET_WSS_URL` / `VITE_TESTNET_WSS_URL` (WebSocket RPC for the overlay
+  when the provider uses a different WS host or path than the HTTP RPC).
 - Custom domain + DNS + HTTPS in Netlify.
 - Run `bun run typecheck`, `bun run build`, and `forge test` before deploying.
 - Decide whether to keep the Arc Studio watermark and the generated diagnostics modules.
 
 ### Supabase mirror (optional)
-- Create the project, `supabase link`, `supabase db push` (four migrations in `supabase/migrations/`).
-- `creator-stats` lives in `supabase/functions/creator-stats/`; deploy it and point
-  `VITE_CREATOR_STATS_URL` at it, or leave the variable unset and the dashboard computes stats
-  from chain.
+- Create one project per network, `supabase link`, `supabase db push` (four migrations in
+  `supabase/migrations/`) against each.
+- `creator-stats` lives in `supabase/functions/creator-stats/`; deploy it per project. The
+  client calls `<project>/functions/v1/creator-stats` automatically, or override with
+  `VITE_TESTNET_CREATOR_STATS_URL` / `VITE_MAINNET_CREATOR_STATS_URL`.
 - A `DonationReceived` indexer (service role) is needed to populate `donations`; without it the UI
   falls back to `eth_getLogs`, which gets slower and may hit RPC range limits.
 - Review RLS before launch: current policies allow anon writes (profiles, `hidden` flag). Move writes
@@ -205,7 +215,7 @@ contract and registration appears broken.
 1. Contract audit.
 2. Authenticated (or read-only) profile/donation writes in Supabase.
 3. Donation indexer or RPC log limits resolved.
-4. `creator-stats` deployed and `VITE_CREATOR_STATS_URL` set, or accept chain-computed stats.
+4. `creator-stats` deployed per network, or accept chain-computed stats.
 5. Service-role `profile-sync` reconciler: evict `profiles` rows whose username belongs to
    another wallet on chain (the anon key cannot delete, so the browser cannot self-heal a
    squatting conflict). Until then pages render without mirrored metadata.

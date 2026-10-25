@@ -7,6 +7,7 @@ import { arcChain } from '../config';
 import { ConnectKitButton } from 'connectkit';
 import { ExternalLink, Download, ChevronLeft, ChevronRight, Loader2, Search, Wallet, FilterX } from 'lucide-react';
 import Layout from '../components/Layout';
+import { SUPABASE_ANON_KEY, SUPABASE_URL } from '../lib/supabase';
 import { Skeleton } from '../components/Skeleton';
 import { PageHeader } from '../components/PageHeader';
 import { StatePanel, EmptyState } from '../components/States';
@@ -69,8 +70,8 @@ export default function HistoryPage() {
   // A full chain scan is one call now, but filtering/paging must not repeat it.
   const chainRowsRef = useRef<{ hash: string; rows: Donation[] } | null>(null);
 
-  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-  const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+  const supabaseUrl = SUPABASE_URL;
+  const supabaseAnonKey = SUPABASE_ANON_KEY;
 
   const fetchDonations = useCallback(async (force = false) => {
     if (!address) return;

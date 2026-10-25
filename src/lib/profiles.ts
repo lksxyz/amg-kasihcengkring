@@ -12,6 +12,7 @@
  */
 import { keccak256, parseAbiItem, toBytes, type Address, type Hex, type PublicClient } from 'viem';
 import { KASIH_ADDRESS, KASIH_DEPLOY_BLOCK, LOG_CHUNK } from '../contract';
+import { isSupabaseConfigured, SUPABASE_ANON_KEY, SUPABASE_URL } from './supabase';
 
 export const CREATOR_REGISTERED = parseAbiItem(
   'event CreatorRegistered(bytes32 indexed usernameHash, string username, address indexed wallet, address payoutAddress)',
@@ -27,11 +28,10 @@ export interface ProfileRow {
   avatar_url: string | null;
 }
 
-const supabase = () => {
-  const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-  const key = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
-  return url && key ? { url, key } : null;
-};
+const supabase = () =>
+  isSupabaseConfigured && SUPABASE_URL && SUPABASE_ANON_KEY
+    ? { url: SUPABASE_URL, key: SUPABASE_ANON_KEY }
+    : null;
 
 /** Mirrors the contract: `usernameHash = keccak256(bytes(username))`, usernames are lowercase. */
 export function hashUsername(username: string): Hex {

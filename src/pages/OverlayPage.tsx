@@ -193,7 +193,7 @@ export default function OverlayPage() {
   if (KASIH_ADDRESS === ZERO_ADDRESS) {
     return (
       <div className="grid min-h-dvh place-items-center p-8 text-center text-sm text-white/60">
-        Contract not deployed. Set VITE_KASIH_ADDRESS.
+        Contract not deployed. Set VITE_TESTNET_KASIH_ADDRESS or VITE_MAINNET_KASIH_ADDRESS.
       </div>
     );
   }

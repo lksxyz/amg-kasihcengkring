@@ -2,19 +2,18 @@
  * KasihCengkring contract configuration.
  */
 
-export const KASIH_ADDRESS = (
-  import.meta.env.VITE_KASIH_ADDRESS || '0xbff209b432510373cc5c87d11d1889c42886cbf1'
-) as `0x${string}`;
+import { KASIH_ADDRESS_CONTRACT, KASIH_DEPLOY_BLOCK_CONTRACT } from './network';
+
+/** Contract address for the network selected by VITE_ARC_NETWORK. */
+export const KASIH_ADDRESS: `0x${string}` = KASIH_ADDRESS_CONTRACT;
 
 export const MIN_DONATION_FLOOR_FALLBACK = 500_000n;
 
 /**
- * First block that contains this contract. Log scans start here instead of a rolling
- * 50k window, which turns a ~28-call scan into one call. Set per deployment.
+ * First block that contains this contract on the selected network. Log scans start here
+ * instead of a rolling 50k window, which turns a ~28-call scan into one call.
  */
-const deployBlockEnv = import.meta.env.VITE_KASIH_DEPLOY_BLOCK as string | undefined;
-
-export const KASIH_DEPLOY_BLOCK = deployBlockEnv ? BigInt(deployBlockEnv) : 0n;
+export const KASIH_DEPLOY_BLOCK: bigint = KASIH_DEPLOY_BLOCK_CONTRACT;
 
 /** Max blocks per eth_getLogs call. Arc mainnet rejects ranges of 10 000 or more. */
 export const LOG_CHUNK = 9_000n;

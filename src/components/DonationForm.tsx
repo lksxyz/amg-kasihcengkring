@@ -11,14 +11,14 @@ import { ConnectKitButton } from 'connectkit';
 import { Loader2, ExternalLink, CheckCircle2, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { KASIH_ADDRESS, KASIH_ABI } from '../contract';
-import { getUsdc, buildTxExplorerUrl } from '../onchain-facts';
+import { buildTxExplorerUrl } from '../onchain-facts';
+import { ARC_RPC_URL, USDC_ADDRESS_CONTRACT } from '../network';
 import { formatUsdc, parseUsdcInput, decodeRevert } from '../lib/utils';
 
-const ARC_CHAIN_ID = arcChain.id; // 5042002
-const usdcFact = getUsdc(ARC_CHAIN_ID);
-// Local Arc nodes use the same USDC predeploy; the override exists for forks
-// that ship a different token address.
-const USDC_ADDRESS = (import.meta.env.VITE_USDC_ADDRESS || usdcFact?.address) as `0x${string}`;
+const ARC_CHAIN_ID = arcChain.id;
+// USDC on the selected network; local Arc nodes use the same predeploy, and forks that
+// ship a different token can override it with VITE_<NETWORK>_USDC_ADDRESS.
+const USDC_ADDRESS = USDC_ADDRESS_CONTRACT;
 
 interface DonationFormProps {
   username: string;
@@ -133,7 +133,7 @@ export default function DonationForm({ username, minDonation, maxDonation, onSuc
     if (!(await walletRpcMatchesApp())) {
       autoDonateRef.current = false;
       setStep('error');
-      const message = `Wallet RPC is not ${import.meta.env.VITE_ARC_RPC_URL ?? 'the app RPC'}. Point the Arc network in ${connector?.name ?? 'your wallet'} at that RPC and retry.`;
+      const message = `Wallet RPC is not ${ARC_RPC_URL}. Point the Arc network in ${connector?.name ?? 'your wallet'} at that RPC and retry.`;
       setErrorMsg(message);
       toast.error(message, { id: FLOW_TOAST_ID });
       return;
@@ -180,7 +180,7 @@ export default function DonationForm({ username, minDonation, maxDonation, onSuc
 
     if (!(await walletRpcMatchesApp())) {
       setStep('error');
-      const message = `Wallet RPC is not ${import.meta.env.VITE_ARC_RPC_URL ?? 'the app RPC'}. Point the Arc network in ${connector?.name ?? 'your wallet'} at that RPC and retry.`;
+      const message = `Wallet RPC is not ${ARC_RPC_URL}. Point the Arc network in ${connector?.name ?? 'your wallet'} at that RPC and retry.`;
       setErrorMsg(message);
       toast.error(message, { id: FLOW_TOAST_ID });
       return;

@@ -11,6 +11,7 @@ import Layout from '../components/Layout';
 import { Skeleton } from '../components/Skeleton';
 import { KASIH_ADDRESS, KASIH_ABI } from '../contract';
 import { buildAddressExplorerUrl } from '../onchain-facts';
+import { IS_TESTNET } from '../network';
 import { formatUsdc } from '../lib/utils';
 
 const ARC_CHAIN_ID = arcChain.id;
@@ -286,8 +287,9 @@ export default function LandingPage() {
       <section className="shell pb-16">
         <div className="border-t pt-6" style={{ borderColor: 'var(--border)' }}>
           <p className="text-xs text-pretty" style={{ color: 'var(--subtle)' }}>
-            KasihCengkring is unaudited open-source software running on Arc Testnet. Use test
-            funds only while it is under review.
+            {IS_TESTNET
+              ? 'KasihCengkring is unaudited open-source software running on Arc Testnet. Use test funds only while it is under review.'
+              : 'KasihCengkring is unaudited open-source software running on Arc Mainnet. Donate only what you can afford to lose.'}
             {isDeployed && (
               <>
                 {' '}

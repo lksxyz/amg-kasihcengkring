@@ -424,6 +424,63 @@ body {
   .skip-link:focus-visible {
     transform: translateY(0);
   }
+
+  /* Testnet strip: 28px tall (Tailwind h-7), rendered above the header on testnet
+     builds only. It is the single piece of chrome that differs between networks. */
+  .testnet-banner {
+    background: #f6e7b0;
+    border-bottom: 1px solid rgba(107, 67, 0, 0.28);
+    color: #4a3000;
+    font-size: 0.75rem;
+    line-height: 1;
+  }
+
+  .testnet-banner-inner {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    height: 1.75rem;
+  }
+
+  .testnet-banner-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  .testnet-banner-copy {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: #5c3d00;
+  }
+
+  .testnet-banner-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.125rem;
+    margin-left: auto;
+    font-weight: 700;
+    color: #3d2700;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    white-space: nowrap;
+  }
+
+  .testnet-banner-link:hover {
+    color: var(--ink);
+  }
+
+  @media (max-width: 639px) {
+    .testnet-banner-copy {
+      display: none;
+    }
+  }
 }
 
 /* Focus is part of the palette, not the browser default. Unlayered so it wins

@@ -14,6 +14,7 @@ import { Skeleton, SkeletonText } from '../components/Skeleton';
 import { KASIH_ADDRESS, KASIH_ABI, MIN_DONATION_FLOOR_FALLBACK } from '../contract';
 import { fetchProfileByWallet, resolveCreatorWallet, type ProfileRow } from '../lib/profiles';
 import { validateUsername } from '../lib/utils';
+import { isSupabaseConfigured } from '../lib/supabase';
 
 const ARC_CHAIN_ID = arcChain.id;
 
@@ -21,7 +22,7 @@ export default function CreatorPage() {
   const { username = '' } = useParams<{ username: string }>();
   const publicClient = usePublicClient({ chainId: ARC_CHAIN_ID });
   const [profile, setProfile] = useState<ProfileRow | null>(null);
-  const supabaseConfigured = !!(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY);
+  const supabaseConfigured = isSupabaseConfigured;
   const [loadingProfile, setLoadingProfile] = useState(supabaseConfigured);
 
   // Chain: creator info (payout address, min donation, registered).

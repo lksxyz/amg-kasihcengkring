@@ -27,6 +27,7 @@ import { buildTxExplorerUrl } from '../onchain-facts';
 import { formatUsdc, formatAddress, formatDate, validateUsername, parseUsdcInput, decodeRevert } from '../lib/utils';
 import { useOnchainUsername } from '../lib/useOnchainUsername';
 import { syncProfileUsername } from '../lib/profiles';
+import { CREATOR_STATS_URL, SUPABASE_ANON_KEY, SUPABASE_URL } from '../lib/supabase';
 import { getChainDonations, ZERO_HASH, type DonationRow } from '../lib/donations';
 
 const ARC_CHAIN_ID = arcChain.id;
@@ -108,8 +109,8 @@ export default function AppDashboard() {
   useEffect(() => {
     if (!address || !isRegistered) return;
     let cancelled = false;
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-    const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+    const supabaseUrl = SUPABASE_URL;
+    const supabaseAnonKey = SUPABASE_ANON_KEY;
 
     // Chain is authoritative; the Supabase mirror may refine it afterwards.
     const loadChain = async () => {
@@ -132,10 +133,9 @@ export default function AppDashboard() {
     if (!supabaseUrl || !supabaseAnonKey) return () => { cancelled = true; };
 
     // Aggregation is served by supabase/functions/creator-stats. Default to it once Supabase is
-    // configured; override with VITE_CREATOR_STATS_URL, or set that to an empty value to opt out.
-    const creatorStatsUrl =
-      (import.meta.env.VITE_CREATOR_STATS_URL as string | undefined) ??
-      `${supabaseUrl}/functions/v1/creator-stats`;
+    // configured; override with a per-network CREATOR_STATS_URL, or set that to an empty value
+    // to opt out.
+    const creatorStatsUrl = CREATOR_STATS_URL;
 
     void fetch(`${supabaseUrl}/rest/v1/profiles?wallet_address=eq.${address.toLowerCase()}&select=username`, {
       headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${supabaseAnonKey}` },

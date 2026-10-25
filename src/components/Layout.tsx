@@ -4,6 +4,8 @@ import { Heart } from 'lucide-react';
 import { arcChain } from '../config';
 import { KASIH_ADDRESS } from '../contract';
 import { buildAddressExplorerUrl } from '../onchain-facts';
+import { IS_TESTNET } from '../network';
+import TestnetBanner from './TestnetBanner';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -21,6 +23,8 @@ export default function Layout({ children, minimal = false }: LayoutProps) {
       <a className="skip-link" href="#main">
         Skip to content
       </a>
+
+      <TestnetBanner />
 
       <header
         className="sticky top-0 z-40 border-b"
@@ -84,7 +88,9 @@ export default function Layout({ children, minimal = false }: LayoutProps) {
             style={{ color: 'var(--muted)' }}
           >
             <p>
-              KasihCengkring is unaudited open-source software. Use small amounts on Arc Testnet.
+              {IS_TESTNET
+                ? 'KasihCengkring is unaudited open-source software. Use small amounts on Arc Testnet.'
+                : 'KasihCengkring is unaudited open-source software. Donate only what you can afford to lose.'}
             </p>
             {isDeployed && (
               <p>

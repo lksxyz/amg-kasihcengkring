@@ -2,13 +2,10 @@
  * wagmi configuration
  * Built with Arc Studio — https://studio.arc.io
  *
- * Network selection:
- *   VITE_ARC_NETWORK=mainnet  → Arc mainnet (chain 5042), wss://rpc.mainnet.arc.io
- *   VITE_ARC_NETWORK=testnet  → Arc testnet (chain 5042002), wss://rpc.testnet.arc.io  [default]
- *
- * Override individual endpoints:
- *   VITE_ARC_RPC_URL  — custom HTTP RPC
- *   VITE_ARC_WSS_URL  — custom WebSocket RPC
+ * Which network this build talks to is decided in one place: `VITE_ARC_NETWORK`
+ * (`testnet` by default, `mainnet` to switch). The chain, RPC, WSS endpoint, contract
+ * address, deploy block, explorer, and USDC address all come from that selection — see
+ * `src/network.ts`.
  */
 
 import { http, webSocket, fallback, createConfig } from 'wagmi'
@@ -17,24 +14,15 @@ import { arc, arcTestnet } from 'viem/chains'
 // re-exported so callers import from config, not viem/chains
 import { injected } from 'wagmi/connectors'
 import { registerChain } from './tracing'
+import { ARC_CHAIN, ARC_NETWORK, ARC_RPC_URL, ARC_WSS_URL } from './network'
 
-const isMainnet = (import.meta.env.VITE_ARC_NETWORK as string | undefined) === 'mainnet'
-const arcChain = isMainnet ? arc : arcTestnet
-
-const defaultWss = isMainnet ? 'wss://rpc.mainnet.arc.io' : 'wss://rpc.testnet.arc.io'
-const defaultHttp = isMainnet ? 'https://rpc.mainnet.arc.io' : undefined
-
-// Per-endpoint overrides
-const arcRpcUrl = (import.meta.env.VITE_ARC_RPC_URL || import.meta.env.VITE_LOCAL_RPC_URL) as string | undefined
-const arcWssUrl = (import.meta.env.VITE_ARC_WSS_URL as string | undefined) ?? defaultWss
+const isMainnet = ARC_NETWORK === 'mainnet'
+const arcChain = ARC_CHAIN
 
 // Pre-register chain RPC URLs so trace events show correct chain names immediately
-registerChain(arcChain.id, arcRpcUrl ?? arcChain.rpcUrls.default.http[0])
+registerChain(arcChain.id, ARC_RPC_URL)
 
-const arcTransport = fallback([
-  webSocket(arcWssUrl),
-  arcRpcUrl ? http(arcRpcUrl) : defaultHttp ? http(defaultHttp) : http(),
-])
+const arcTransport = fallback([webSocket(ARC_WSS_URL), http(ARC_RPC_URL)])
 
 export const config = createConfig({
   chains: [arcChain, mainnet], // mainnet needed for ENS resolution
