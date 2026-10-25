@@ -19,7 +19,8 @@ only platform revenue is a small fee forwarded to the treasury in the same trans
 - **Platform fee** is `flatFee + feeBps` of every gross donation (default 0.01 USDC + 1%),
   borne by the creator and forwarded to `treasury` in the same transaction. The donor pays
   exactly the amount they type; the contract's balance remains zero.
-- **History** and public profiles read from chain state plus an optional Supabase mirror.
+- **History** and public profiles read from the optional Supabase mirror; donation history
+  always comes from Supabase, never an RPC log scan.
   With no Supabase configured, the app still works — chain reads and event-derived UI are
   the source of truth; profile/history panels simply stay empty.
 - **Pause** stops new registrations and donations but never blocks `updatePayoutAddress`:

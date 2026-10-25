@@ -116,15 +116,15 @@ Notes:
 - The anon key is public. Writes are currently allowed by RLS because there is no auth
   backend: anyone can edit a profile or hide a donation. Treat these fields as cosmetic and
   move writes behind a signature-verifying edge function before mainnet.
-- `donations` is populated by an indexer using the service role; the browser never inserts
-  donations.
+- `donations` is inserted by the browser after a confirmed `donate()` (anon insert policy in
+  `20261025000000_donation_inserts.sql`); an indexer can still backfill with the service role.
 - `GET /functions/v1/creator-stats` is the aggregation edge function in
   [`supabase/functions/creator-stats/`](../supabase/functions/creator-stats). Deploy it with
   `supabase functions deploy creator-stats --project-ref <ref>`; it needs no extra secret (it
   reads `donations` with the injected anon key, which RLS already opens for select). The client
   calls it automatically once the network's Supabase group is configured; set
   `VITE_TESTNET_CREATOR_STATS_URL` / `VITE_MAINNET_CREATOR_STATS_URL` to override it, or to an
-  empty value to disable the call (dashboard stats then come from chain logs).
+  empty value to disable the call (dashboard stats then stay empty).
 
 ## Contract redeploy handoff
 
@@ -192,15 +192,16 @@ contract and registration appears broken.
 - `creator-stats` lives in `supabase/functions/creator-stats/`; deploy it per project. The
   client calls `<project>/functions/v1/creator-stats` automatically, or override with
   `VITE_TESTNET_CREATOR_STATS_URL` / `VITE_MAINNET_CREATOR_STATS_URL`.
-- A `DonationReceived` indexer (service role) is needed to populate `donations`; without it the UI
-  falls back to `eth_getLogs`, which gets slower and may hit RPC range limits.
-- Review RLS before launch: current policies allow anon writes (profiles, `hidden` flag). Move writes
-  behind a signature-verifying edge function or make the mirror read-only.
+- A `DonationReceived` indexer (service role) is optional now: the browser inserts its own row
+  after a confirmed donation. Without an indexer, donations made before this change are not
+  backfilled.
+- Review RLS before launch: current policies allow anon writes (profiles, `hidden` flag, and
+  donation insert). Move writes behind a signature-verifying edge function or make the mirror
+  read-only.
 - Never place the `service_role` key in frontend or Netlify's public environment.
 
 ### RPC and data
-- Public RPCs cap `eth_getLogs` ranges. For production history use a paid RPC, an indexer, or
-  chunked queries.
+- Donation views read Supabase only; RPC `eth_getLogs` is no longer used for history.
 - Confirm the RPC allows requests from the Netlify domain (CORS).
 - Configure a backup RPC URL if the primary provider rate-limits.
 
@@ -214,7 +215,7 @@ contract and registration appears broken.
 ### Launch blockers
 1. Contract audit.
 2. Authenticated (or read-only) profile/donation writes in Supabase.
-3. Donation indexer or RPC log limits resolved.
+3. Donation mirror backfill for pre-existing history (or accept from-now-on only).
 4. `creator-stats` deployed per network, or accept chain-computed stats.
 5. Service-role `profile-sync` reconciler: evict `profiles` rows whose username belongs to
    another wallet on chain (the anon key cannot delete, so the browser cannot self-heal a

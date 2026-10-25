@@ -1,8 +1,8 @@
 /**
  * /app/history — Full donation history with search, date filter, CSV export.
  */
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { useAccount, useReadContract, usePublicClient, useSwitchChain } from 'wagmi';
+import { useState, useEffect, useCallback } from 'react';
+import { useAccount, useSwitchChain } from 'wagmi';
 import { arcChain } from '../config';
 import { ConnectKitButton } from 'connectkit';
 import { ExternalLink, Download, ChevronLeft, ChevronRight, Loader2, Search, Wallet, FilterX } from 'lucide-react';
@@ -12,9 +12,7 @@ import { Skeleton } from '../components/Skeleton';
 import { PageHeader } from '../components/PageHeader';
 import { StatePanel, EmptyState } from '../components/States';
 import { buildTxExplorerUrl } from '../onchain-facts';
-import { KASIH_ADDRESS, KASIH_ABI } from '../contract';
 import { formatUsdc, formatAddress, formatDate } from '../lib/utils';
-import { getChainDonations, ZERO_HASH } from '../lib/donations';
 
 const ARC_CHAIN_ID = arcChain.id;
 const PAGE_SIZE = 20;
@@ -47,17 +45,7 @@ function netOf(d: Donation): bigint {
 export default function HistoryPage() {
   const { address, isConnected, chainId } = useAccount();
   const { switchChain, isPending: isSwitching } = useSwitchChain();
-  const publicClient = usePublicClient({ chainId: ARC_CHAIN_ID });
   const isWrongChain = isConnected && chainId !== ARC_CHAIN_ID;
-
-  const { data: creatorHash } = useReadContract({
-    address: KASIH_ADDRESS,
-    abi: KASIH_ABI,
-    functionName: 'walletToUsernameHash',
-    args: address ? [address] : undefined,
-    chainId: ARC_CHAIN_ID,
-    query: { enabled: !!address },
-  });
 
   const [donations, setDonations] = useState<Donation[]>([]);
   const [total, setTotal] = useState(0);
@@ -67,78 +55,43 @@ export default function HistoryPage() {
   const [dateTo, setDateTo] = useState('');
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(false);
-  // A full chain scan is one call now, but filtering/paging must not repeat it.
-  const chainRowsRef = useRef<{ hash: string; rows: Donation[] } | null>(null);
 
   const supabaseUrl = SUPABASE_URL;
   const supabaseAnonKey = SUPABASE_ANON_KEY;
 
-  const fetchDonations = useCallback(async (force = false) => {
+  const fetchDonations = useCallback(async () => {
     if (!address) return;
     setLoading(true);
     setLoadError(false);
 
-    // Prefer the Supabase mirror, but fall back to chain logs when it is absent,
-    // unreachable, or empty (no indexer running).
-    if (supabaseUrl && supabaseAnonKey) {
-      try {
-        const params = new URLSearchParams();
-        params.set('creator_wallet', `eq.${address.toLowerCase()}`);
-        params.set('order', 'block_timestamp.desc');
-        params.set('limit', String(PAGE_SIZE));
-        params.set('offset', String(page * PAGE_SIZE));
-        params.set('select', '*');
-        if (search.trim()) params.set('or', `(donor_name.ilike.*${search}*,message.ilike.*${search}*,donor_address.ilike.*${search}*)`);
-        if (dateFrom) params.set('block_timestamp', `gte.${Math.floor(new Date(dateFrom).getTime() / 1000)}`);
-        if (dateTo) params.set('block_timestamp', `lte.${Math.floor(new Date(dateTo + 'T23:59:59').getTime() / 1000)}`);
-
-        const r = await fetch(`${supabaseUrl}/rest/v1/donations?${params}`, {
-          headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${supabaseAnonKey}`, Prefer: 'count=exact' },
-        });
-        if (!r.ok) throw new Error(`donations ${r.status}`);
-        const countHeader = r.headers.get('content-range');
-        const count = countHeader ? parseInt(countHeader.split('/')[1] ?? '0') : 0;
-        const rows = (await r.json()) as Donation[];
-        // The table exists but no indexer has populated it: use chain logs.
-        if (rows.length > 0) {
-          setTotal(count);
-          setDonations(rows);
-          setLoading(false);
-          return;
-        }
-      } catch {
-        // Fall through to chain.
-      }
+    // History is served by the Supabase mirror only — never by an Arc RPC log scan.
+    if (!supabaseUrl || !supabaseAnonKey) {
+      setDonations([]);
+      setTotal(0);
+      setLoading(false);
+      return;
     }
 
     try {
-      if (!publicClient || !creatorHash || creatorHash === ZERO_HASH) {
-        setDonations([]);
-        setTotal(0);
-        return;
-      }
-      const cached = !force && chainRowsRef.current?.hash === creatorHash ? chainRowsRef.current.rows : null;
-      let rows: Donation[] = cached ?? (await getChainDonations(publicClient, { usernameHash: creatorHash }));
-      if (!cached) chainRowsRef.current = { hash: creatorHash, rows };
-      const q = search.trim().toLowerCase();
-      if (q) {
-        rows = rows.filter(
-          (d) =>
-            d.donor_name.toLowerCase().includes(q) ||
-            d.message.toLowerCase().includes(q) ||
-            d.donor_address.toLowerCase().includes(q),
-        );
-      }
-      if (dateFrom) {
-        const from = Math.floor(new Date(dateFrom).getTime() / 1000);
-        rows = rows.filter((d) => d.block_timestamp >= from);
-      }
-      if (dateTo) {
-        const to = Math.floor(new Date(dateTo + 'T23:59:59').getTime() / 1000);
-        rows = rows.filter((d) => d.block_timestamp <= to);
-      }
-      setTotal(rows.length);
-      setDonations(rows.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE));
+      const params = new URLSearchParams();
+      params.set('creator_wallet', `eq.${address.toLowerCase()}`);
+      params.set('order', 'block_timestamp.desc');
+      params.set('limit', String(PAGE_SIZE));
+      params.set('offset', String(page * PAGE_SIZE));
+      params.set('select', '*');
+      if (search.trim()) params.set('or', `(donor_name.ilike.*${search}*,message.ilike.*${search}*,donor_address.ilike.*${search}*)`);
+      if (dateFrom) params.set('block_timestamp', `gte.${Math.floor(new Date(dateFrom).getTime() / 1000)}`);
+      if (dateTo) params.set('block_timestamp', `lte.${Math.floor(new Date(dateTo + 'T23:59:59').getTime() / 1000)}`);
+
+      const r = await fetch(`${supabaseUrl}/rest/v1/donations?${params}`, {
+        headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${supabaseAnonKey}`, Prefer: 'count=exact' },
+      });
+      if (!r.ok) throw new Error(`donations ${r.status}`);
+      const countHeader = r.headers.get('content-range');
+      const count = countHeader ? parseInt(countHeader.split('/')[1] ?? '0') : 0;
+      const rows = (await r.json()) as Donation[];
+      setTotal(count);
+      setDonations(rows);
     } catch {
       setLoadError(true);
       setDonations([]);
@@ -146,7 +99,7 @@ export default function HistoryPage() {
     } finally {
       setLoading(false);
     }
-  }, [address, page, search, dateFrom, dateTo, supabaseUrl, supabaseAnonKey, publicClient, creatorHash]);
+  }, [address, page, search, dateFrom, dateTo, supabaseUrl, supabaseAnonKey]);
 
   useEffect(() => { void fetchDonations(); }, [fetchDonations]);
 
@@ -332,9 +285,9 @@ export default function HistoryPage() {
           ) : loadError ? (
             <EmptyState
               title="Could not load donation history"
-              description="Arc did not respond. Check your connection and try again."
+              description="Supabase did not respond. Check your connection and try again."
             >
-              <button type="button" onClick={() => void fetchDonations(true)} className="btn btn-secondary btn-sm">
+              <button type="button" onClick={() => void fetchDonations()} className="btn btn-secondary btn-sm">
                 Try again
               </button>
             </EmptyState>

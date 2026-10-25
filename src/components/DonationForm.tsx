@@ -14,6 +14,7 @@ import { KASIH_ADDRESS, KASIH_ABI } from '../contract';
 import { buildTxExplorerUrl } from '../onchain-facts';
 import { ARC_RPC_URL, USDC_ADDRESS_CONTRACT } from '../network';
 import { formatUsdc, parseUsdcInput, decodeRevert } from '../lib/utils';
+import { donationFromLog, mirrorDonation } from '../lib/donations';
 
 const ARC_CHAIN_ID = arcChain.id;
 // USDC on the selected network; local Arc nodes use the same predeploy, and forks that
@@ -45,6 +46,7 @@ export default function DonationForm({ username, minDonation, maxDonation, onSuc
   const [donateTxHash, setDonateTxHash] = useState<`0x${string}` | undefined>();
   const [errorMsg, setErrorMsg] = useState('');
   const autoDonateRef = useRef(false);
+  const mirroredTxRef = useRef<string | null>(null);
 
   const isWrongChain = isConnected && chainId !== ARC_CHAIN_ID;
   const parsedAmount = parseUsdcInput(amountInput);
@@ -76,7 +78,11 @@ export default function DonationForm({ username, minDonation, maxDonation, onSuc
 
   // Donate write
   const { writeContract: writeDonate, isPending: isDonateWalletPending } = useWriteContract();
-  const { isLoading: isDonateConfirming, isSuccess: isDonateSuccess } = useWaitForTransactionReceipt({ hash: donateTxHash });
+  const {
+    data: donateReceipt,
+    isLoading: isDonateConfirming,
+    isSuccess: isDonateSuccess,
+  } = useWaitForTransactionReceipt({ hash: donateTxHash });
 
   // Donor balance, so an empty wallet fails before opening the wallet UI.
   const { data: usdcBalance } = useReadContract({
@@ -265,14 +271,23 @@ export default function DonationForm({ username, minDonation, maxDonation, onSuc
     setTimeout(() => void handleDonate(), 800);
   }, [isApproveSuccess, step, refetchAllowance, handleDonate]);
 
-  // Donation confirmed.
+  // Donation confirmed: mirror it to Supabase, then show the success state.
   useEffect(() => {
-    if (!isDonateSuccess || step !== 'donate-pending') return;
+    if (!isDonateSuccess || !donateReceipt || step !== 'donate-pending') return;
+    const txHash = donateReceipt.transactionHash;
+    if (mirroredTxRef.current !== txHash) {
+      mirroredTxRef.current = txHash;
+      const donation = donateReceipt.logs
+        .filter((log) => log.address.toLowerCase() === KASIH_ADDRESS.toLowerCase())
+        .map(donationFromLog)
+        .find((row) => row !== null);
+      if (donation) void mirrorDonation(donation);
+    }
     setStep('done');
     void refetchAllowance();
     toast.success('Donation sent.', { id: FLOW_TOAST_ID });
     onSuccess?.();
-  }, [isDonateSuccess, step, refetchAllowance, onSuccess]);
+  }, [isDonateSuccess, donateReceipt, step, refetchAllowance, onSuccess]);
 
   const isLoading =
     isApproveWalletPending || isApproveConfirming || isDonateWalletPending || isDonateConfirming ||

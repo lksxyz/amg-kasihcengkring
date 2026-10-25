@@ -2,7 +2,7 @@
  * /app — sign-in, onboarding, and dashboard.
  * Shows: connect wallet, register username, stats, latest supporters.
  */
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useAccount, usePublicClient, useReadContract, useWriteContract, useWaitForTransactionReceipt, useSwitchChain } from 'wagmi';
 import { arcChain } from '../config';
@@ -28,7 +28,6 @@ import { formatUsdc, formatAddress, formatDate, validateUsername, parseUsdcInput
 import { useOnchainUsername } from '../lib/useOnchainUsername';
 import { syncProfileUsername } from '../lib/profiles';
 import { CREATOR_STATS_URL, SUPABASE_ANON_KEY, SUPABASE_URL } from '../lib/supabase';
-import { getChainDonations, ZERO_HASH, type DonationRow } from '../lib/donations';
 
 const ARC_CHAIN_ID = arcChain.id;
 
@@ -51,22 +50,9 @@ interface Stats {
   count: number;
 }
 
-function statsFromChain(rows: DonationRow[]): Stats {
-  const now = Math.floor(Date.now() / 1000);
-  const sum = (list: DonationRow[]) => list.reduce((acc, row) => acc + BigInt(row.net_raw), 0n);
-  const format = (value: bigint) => (Number(value) / 1_000_000).toFixed(2);
-  return {
-    total: format(sum(rows)),
-    last7: format(sum(rows.filter((row) => row.block_timestamp >= now - 7 * 86_400))),
-    last30: format(sum(rows.filter((row) => row.block_timestamp >= now - 30 * 86_400))),
-    count: rows.length,
-  };
-}
-
 export default function AppDashboard() {
   const { address, isConnected, chainId } = useAccount();
   const { switchChain, isPending: isSwitching } = useSwitchChain();
-  const publicClient = usePublicClient({ chainId: ARC_CHAIN_ID });
   const isWrongChain = isConnected && chainId !== ARC_CHAIN_ID;
 
   // On-chain: does this wallet already have a username?
@@ -109,18 +95,55 @@ export default function AppDashboard() {
   useEffect(() => {
     if (!address || !isRegistered) return;
     let cancelled = false;
-    const supabaseUrl = SUPABASE_URL;
-    const supabaseAnonKey = SUPABASE_ANON_KEY;
 
-    // Chain is authoritative; the Supabase mirror may refine it afterwards.
-    const loadChain = async () => {
-      if (!publicClient || !existingHash || existingHash === ZERO_HASH) return;
-      setLoadingStats(true);
+    // Supabase is the only source for recents and stats. Never scan Arc logs here.
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+      setRecentDonations([]);
+      setStats(null);
+      return;
+    }
+
+    const headers = { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` };
+    setLoadingStats(true);
+
+    const loadMirror = async () => {
       try {
-        const rows = await getChainDonations(publicClient, { usernameHash: existingHash });
-        if (cancelled) return;
-        setRecentDonations(rows.slice(0, 5));
-        setStats(statsFromChain(rows));
+        const profileRes = await fetch(
+          `${SUPABASE_URL}/rest/v1/profiles?wallet_address=eq.${address.toLowerCase()}&select=username`,
+          { headers },
+        );
+        if (profileRes.ok) {
+          const rows = (await profileRes.json()) as { username: string }[];
+          if (!cancelled && rows[0]) setUsername(rows[0].username);
+        }
+      } catch {
+        // Profile mirror is best-effort.
+      }
+
+      try {
+        const donationsRes = await fetch(
+          `${SUPABASE_URL}/rest/v1/donations?creator_wallet=eq.${address.toLowerCase()}&order=block_timestamp.desc&limit=5&select=*`,
+          { headers },
+        );
+        if (!donationsRes.ok) throw new Error(`donations ${donationsRes.status}`);
+        const rows = (await donationsRes.json()) as Donation[];
+        if (!cancelled) setRecentDonations(rows);
+      } catch {
+        if (!cancelled) setRecentDonations([]);
+      }
+
+      if (!CREATOR_STATS_URL) {
+        if (!cancelled) setLoadingStats(false);
+        return;
+      }
+
+      try {
+        const statsRes = await fetch(`${CREATOR_STATS_URL}?wallet=${address}`, {
+          headers: { Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
+        });
+        if (!statsRes.ok) throw new Error(`creator-stats ${statsRes.status}`);
+        const data = (await statsRes.json()) as Stats;
+        if (!cancelled) setStats(data);
       } catch {
         if (!cancelled) setStats(null);
       } finally {
@@ -128,57 +151,9 @@ export default function AppDashboard() {
       }
     };
 
-    void loadChain();
-
-    if (!supabaseUrl || !supabaseAnonKey) return () => { cancelled = true; };
-
-    // Aggregation is served by supabase/functions/creator-stats. Default to it once Supabase is
-    // configured; override with a per-network CREATOR_STATS_URL, or set that to an empty value
-    // to opt out.
-    const creatorStatsUrl = CREATOR_STATS_URL;
-
-    void fetch(`${supabaseUrl}/rest/v1/profiles?wallet_address=eq.${address.toLowerCase()}&select=username`, {
-      headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${supabaseAnonKey}` },
-    })
-      .then((r) => {
-        if (!r.ok) throw new Error(`profiles ${r.status}`);
-        return r.json() as Promise<{ username: string }[]>;
-      })
-      .then((rows) => {
-        if (!cancelled && rows[0]) setUsername(rows[0].username);
-      })
-      .catch(() => {});
-
-    if (creatorStatsUrl) {
-      void fetch(`${creatorStatsUrl}?wallet=${address}`, {
-        headers: { Authorization: `Bearer ${supabaseAnonKey}` },
-      })
-        .then((r) => {
-          if (!r.ok) throw new Error(`creator-stats ${r.status}`);
-          return r.json() as Promise<Stats>;
-        })
-        .then((data) => {
-          // A missing or not-yet-indexed mirror reports zeros; never let it wipe the
-          // chain-computed numbers.
-          if (!cancelled && data && data.count > 0) setStats(data);
-        })
-        .catch(() => {});
-    }
-
-    void fetch(`${supabaseUrl}/rest/v1/donations?creator_wallet=eq.${address.toLowerCase()}&order=block_timestamp.desc&limit=5&select=*`, {
-      headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${supabaseAnonKey}` },
-    })
-      .then((r) => {
-        if (!r.ok) throw new Error(`donations ${r.status}`);
-        return r.json() as Promise<Donation[]>;
-      })
-      .then((rows) => {
-        if (!cancelled && rows.length > 0) setRecentDonations(rows);
-      })
-      .catch(() => {});
-
+    void loadMirror();
     return () => { cancelled = true; };
-  }, [address, isRegistered, existingHash, publicClient]);
+  }, [address, isRegistered]);
 
   const profileUrl =
     effectiveUsername && typeof window !== 'undefined'

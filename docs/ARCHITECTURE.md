@@ -166,8 +166,10 @@ keeps a long-lived socket; the rest of the app stays on plain HTTP.
   `profiles` by `wallet_address`. Write side is `src/lib/profiles.ts#syncProfileUsername`,
   which mirrors the chain-confirmed username after registration instead of waiting for the
   creator to press Save in settings.
-- Donation history is mirrored, not reconstructed from `eth_getLogs` in the browser, to keep
-  the SPA light. The chain remains the audit trail.
+- Donation recents, stats, and `/app/history` come from the Supabase mirror only — the UI
+  never runs an `eth_getLogs` scan for them. After `donate()` confirms, the browser inserts
+  the row itself (`src/lib/donations.ts#mirrorDonation`), deduplicated by
+  `(chain_id, tx_hash, log_index)`. The chain remains the audit trail.
 
 **Contract binding** (`src/contract.ts`): address comes from `src/network.ts` for the
 selected network (deployed Arc mainnet and testnet instances are built-in defaults); inline
@@ -220,8 +222,10 @@ Operations runbook: [DEPLOYMENT.md](DEPLOYMENT.md).
 
 ## Known limits and extension points
 
-- **No indexer.** The Supabase mirror is populated out of band; if it is missing, history is
-  empty. A real indexer (or an Arc-native indexer) would make history trustless-lite.
+- **No indexer.** The Supabase mirror is populated by the browser on donation success, so
+  donations made before that write existed (or through another client) are absent until an
+  indexer backfills them. A real indexer (or an Arc-native indexer) would make history
+  trustless-lite and complete.
 - **No username transfer or recovery.** Immutability is a security choice; lost keys mean a
   new username.
 - **Payout address is unverified.** Creators can point at an address they do not control;
